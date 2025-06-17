@@ -1,0 +1,184 @@
+*neowiki.nvim
+
+MIT License Copyright (c) 2024 echaya
+
+==============================================================================
+
+CONTENTS                                      *neowiki-contents*
+
+1. Introduction...............................|neowiki-introduction|
+2. Features...................................|neowiki-features|
+3. Installation...............................|neowiki-installation|
+4. Setup......................................|neowiki-setup|
+5. Configuration..............................|neowiki-configuration|
+6. Mappings...................................|neowiki-mappings|
+7. API........................................|neowiki-api|
+
+==============================================================================
+
+1. Introduction                               *neowiki-introduction*
+
+neowiki.nvim is a lightweight, first-class Neovim citizen with Lua finesse,
+offering a minimal, intuitive workflow out of the box for note-taking and
+Getting Things Done (GTD).
+
+==============================================================================
+
+2. Features                                   *neowiki-features*
+
+- *Seamless Linking & Navigation*
+Create and track markdown links with <CR>, split with <S-CR> or <C-CR>. Navigate smoothly with <Tab>/<S-Tab> and <Backspace>
+
+- **Smart GTD**
+Toggle tasks with <leader>wt ([ ] to [x]), see nested progress updated in real-time.
+
+- **Multi-Wiki & Nested Support*
+Manage multiple wikis (e.g., work, personal) and nested index.md with ease.
+
+- *Wiki Management*
+Delete pages with <leader>wd and clean broken links with built-in tools.
+
+- *Neovim Native*
+Harness Neovim 0.10+ with Lua speed, integrating seamlessly with Treesitter, markdown rendering, completion, pickers, and your setup out of the box.
+
+==============================================================================
+
+3. Installation                               *neowiki-installation*
+
+This plugin requires Neovim >= 0.10.
+
+Using lazy.nvim:
+>lua
+{
+  "echaya/neowiki.nvim",
+  opts = {
+    wiki_dirs = {
+      -- neowiki.nvim supports both absolute and tilde-expanded paths
+      { name = "Work", path = "~/work/wiki" },
+      { name = "Personal", path = "personal/wiki" },
+    },
+  },
+  keys = {
+    { "<leader>ww", "<cmd>lua require('neowiki').open_wiki()<cr>", desc = "Open Wiki" },
+    { "<leader>wT", "<cmd>lua require('neowiki').open_wiki_new_tab()<cr>", desc = "Open Wiki in Tab" },
+  },
+}
+<
+
+==============================================================================
+
+4. Setup                                      *neowiki-setup*
+
+If you are not using a plugin manager that supports the `opts` table (like
+lazy.nvim), you must call the `setup()` function manually.
+
+>lua
+  require('neowiki').setup({
+    -- Your configuration options go here.
+    -- See |neowiki-configuration| for all available settings.
+  })
+<
+
+==============================================================================
+
+5. Configuration                              *neowiki-configuration*
+
+The `setup` function accepts a table to customize the plugin's behavior.
+Below are the default settings. You only need to pass the options you wish
+to override.
+
+Default values:
+>lua
+require("neowiki").setup({
+  -- A list of tables, where each table defines a wiki.
+  -- Defaults to `~/wiki` if nil.
+  wiki_dirs = nil,
+
+  -- The filename for a wiki's index page.
+  index_file = "index.md",
+
+  -- Defines the keymaps used by neowiki.
+  keymaps = {
+    action_link = "<CR>",
+    action_link_vsplit = "<S-CR>",
+    action_link_split = "<C-CR>",
+    toggle_task = "<leader>wt",
+    next_link = "<Tab>",
+    prev_link = "<S-Tab>",
+    jump_to_index = "<Backspace>",
+    delete_page = "<leader>wd",
+    cleanup_links = "<leader>wc",
+  },
+
+  -- Configuration for the GTD functionality.
+  gtd = {
+    show_gtd_progress = true, -- Show task progress percentages
+    gtd_progress_hl_group = "Comment", -- Highlight group for progress text
+  },
+})
+<
+
+==============================================================================
+
+6. Mappings                                   *neowiki-mappings*
+
+Default Key Mappings
+--------------------
+The following logical actions are mapped by default. You can change the key
+for any action in the `keymaps` table of your setup configuration.
+
+| Mode   | Key binding     | Action Description                |
+|--------|-----------------|-----------------------------------|
+| Normal | `<CR>`          | Follow link under cursor          |
+| Visual | `<CR>`          | Create link from selection        |
+| Normal | `<S-CR>`        | Follow link in a vertical split   |
+| Visual | `<S-CR>`        | Create link, open in vsplit       |
+| Normal | `<C-CR>`        | Follow link in a horizontal split |
+| Visual | `<C-CR>`        | Create link, open in split        |
+| Normal | `<Tab>`         | Jump to the next link in buffer   |
+| Normal | `<S-Tab>`       | Jump to the previous link         |
+| Normal | `<Backspace>`   | Jump to the current wiki's index  |
+| Normal | `<leader>wt`    | Toggle task status on current line|
+| Visual | `<leader>wt`    | Toggle task status for selection  |
+| Normal | `<leader>wd`    | Delete the current wiki page      |
+| Normal | `<leader>wc`    | Clean up broken links in file     |
+
+==============================================================================
+
+7. API                                        *neowiki-api*
+
+The following functions are exposed in the main `neowiki` module and can be
+used for custom mappings or scripts.
+
+------------------------------------------------------------------------------
+*neowiki.open_wiki({name})*
+
+Opens the index page of a wiki.
+
+- If multiple wikis are defined in `wiki_dirs` and `{name}` is `nil`, it
+  will display a `vim.ui.select` prompt to choose a wiki.
+- If `{name}` (string) is provided, it will attempt to open the wiki with the
+  matching name from your configuration.
+- If only a single wiki is configured, it will open it directly.
+
+Usage:
+>lua
+  -- Mapped to a key, will prompt if needed
+  vim.keymap.set('n', '<leader>ww', "<cmd>lua require('neowiki').open_wiki()<cr>")
+
+  -- Open a specific wiki directly
+  vim.keymap.set('n', '<leader>wp', "<cmd>lua require('neowiki').open_wiki('personal')<cr>")
+<
+
+------------------------------------------------------------------------------
+*neowiki.open_wiki_new_tab({name})*
+
+Same as |neowiki.open_wiki()|, but opens the wiki's index page in a new
+tab.
+
+Usage:
+>lua
+  vim.keymap.set('n', '<leader>wT', "<cmd>lua require('neowiki').open_wiki_new_tab()<cr>")
+<
+
+vim:tw=78:ts=8:noet:ft=help:norl:
