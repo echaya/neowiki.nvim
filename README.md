@@ -16,7 +16,7 @@
 ## 🔥 Key Features
 
 - **Seamless Linking & Navigation** 🔗  
-Create and track markdown links with <CR>, split with <S-CR> or <C-CR>. Navigate smoothly with <Tab>/<S-Tab> and <Backspace>
+Create and track markdown links with `<CR>`, split with `<S-CR>` or `<C-CR>`. Navigate smoothly with `<Tab>`/`<S-Tab>` and `<BS>`
 
 - **Smart GTD** ✅  
 Toggle tasks with <leader>wt ([ ] to [x]), see nested progress updated in real-time.
