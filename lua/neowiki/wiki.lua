@@ -98,7 +98,7 @@ local create_buffer_keymaps = function(buffer_number)
   if is_float() then
     local function notify_disabled()
       vim.notify(
-        "action_link_(v)split actions are disabled in a floating window.",
+        "(V)Split actions are disabled in a floating window.",
         vim.log.levels.INFO,
         { title = "neowiki" }
       )

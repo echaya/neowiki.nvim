@@ -84,7 +84,7 @@ lua vim.keymap.set( "n", "<leader>wT", require("neowiki").open_wiki_new_tab, { d
 ```lua
 -- open a specific wiki defined in wiki_dirs
 vim.keymap.set("n", "<leader>wk", function()
-  require("neowiki").open_wiki("work")
+  require("neowiki").open_wiki("Work")
 end, { desc = "Open Work Wiki" })
 ```
 
