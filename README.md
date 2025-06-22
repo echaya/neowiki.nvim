@@ -66,12 +66,18 @@ Requires **Neovim >= 0.10**. For the best experience, install Treesitter’s `ma
 ```lua
 require("mini.deps").add("echaya/neowiki.nvim")
 require("neowiki").setup()
+vim.keymap.set("n", "<leader>ww", require("neowiki").open_wiki, { desc = "Open Wiki" })
+vim.keymap.set( "n", "<leader>wW", require("neowiki").open_wiki_floating, { desc = "Open Wiki in Floating Window" })
+vim.keymap.set( "n", "<leader>wT", require("neowiki").open_wiki_new_tab, { desc = "Open Wiki in New Tab" })
 ```
 
 ### Using Vim-Plug
 ```vim
 Plug 'echaya/neowiki.nvim'
 lua require('neowiki').setup()
+lua vim.keymap.set("n", "<leader>ww", require("neowiki").open_wiki, { desc = "Open Wiki" })
+lua vim.keymap.set( "n", "<leader>wW", require("neowiki").open_wiki_floating, { desc = "Open Wiki in Floating Window" })
+lua vim.keymap.set( "n", "<leader>wT", require("neowiki").open_wiki_new_tab, { desc = "Open Wiki in New Tab" })
 ```
 
 
