@@ -17,6 +17,7 @@ local markdown_patterns = {
 M.VERSION = "0.1.0"
 M.open_wiki = wiki.open_wiki
 M.open_wiki_new_tab = wiki.open_wiki_new_tab
+M.open_wiki_floating = wiki.open_wiki_floating
 
 --- Private Functions ---
 

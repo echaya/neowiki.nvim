@@ -41,6 +41,9 @@ local config = {
     delete_page = "<leader>wd",
     -- Removes all links in the current file that point to non-existent pages.
     cleanup_links = "<leader>wc",
+
+    -- Keymap to close the floating wiki.
+    close_float = "q",
   },
 
   -- Configuration for the GTD functionality.
@@ -50,7 +53,22 @@ local config = {
     -- The highlight group to use for the progress virtual text.
     gtd_progress_hl_group = "Comment",
   },
+
+  -- Configuration for opening wiki in floating window.
+  floating_wiki = {
+    -- Config for nvim_open_win(). Defines the window's structure,
+    -- position, and border. These are the default values.
+    open = {
+      relative = "editor",
+      width = 0.85,
+      height = 0.85,
+      border = "rounded",
+    },
+
+    -- Options for nvim_win_set_option(). Defines the behavior
+    -- within the window after it's created. Left empty by default.
+    style = {},
+  },
 }
 
 return config
-

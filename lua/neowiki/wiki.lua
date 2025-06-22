@@ -5,6 +5,16 @@ local state = require("neowiki.state")
 local M = {}
 
 ---
+-- Helper function to detect if the current window is a float.
+-- @return boolean True if the window is a float, false otherwise.
+--
+local function is_float()
+  local win_id = vim.api.nvim_get_current_win()
+  local conf = vim.api.nvim_win_get_config(win_id)
+  return conf.relative and conf.relative ~= ""
+end
+
+---
 -- Creates buffer-local keymaps for the current wiki file.
 -- These keymaps are defined in the user's configuration.
 -- @param buffer_number (number): The buffer number to attach the keymaps to.
@@ -83,6 +93,33 @@ local create_buffer_keymaps = function(buffer_number)
       n = { rhs = require("neowiki.wiki").cleanup_broken_links, desc = "Clean Broken Links" },
     },
   }
+
+  -- If we are in a floating window, override split actions to show a notification.
+  if is_float() then
+    local function notify_disabled()
+      vim.notify(
+        "action_link_(v)split actions are disabled in a floating window.",
+        vim.log.levels.INFO,
+        { title = "neowiki" }
+      )
+    end
+
+    local disabled_action = {
+      n = { rhs = notify_disabled, desc = "Action disabled in float" },
+      v = { rhs = notify_disabled, desc = "Action disabled in float" },
+    }
+    logical_actions.action_link_vsplit = disabled_action
+    logical_actions.action_link_split = disabled_action
+
+    local close_lhs = config.keymaps.close_float
+    if close_lhs and close_lhs ~= "" then
+      vim.keymap.set("n", close_lhs, "<cmd>close<CR>", {
+        buffer = buffer_number,
+        desc = "neowiki: Close floating window",
+        silent = true,
+      })
+    end
+  end
 
   -- Iterate through the user's flattened keymap config and apply the mappings.
   for action_name, lhs in pairs(config.keymaps) do
@@ -172,15 +209,73 @@ M.setup_buffer = function()
 end
 
 ---
+-- Opens a buffer in a styled floating window.
+-- @param buffer_number (number): The buffer number to open.
+--
+local function _open_file_in_float(buffer_number)
+  -- Internal defaults to ensure the function is robust against malformed user config.
+  -- These values should mirror the defaults exposed in `config.lua`.
+  local internal_defaults = {
+    open = {
+      relative = "editor",
+      width = 0.85,
+      height = 0.85,
+      border = "rounded",
+    },
+    style = {},
+  }
+
+  -- Merge the user's config from the global `config` object over our internal defaults.
+  local final_float_config = util.deep_merge(internal_defaults, config.floating_wiki or {})
+
+  local win_config = final_float_config.open
+  local win_style_options = final_float_config.style
+
+  local width = win_config.width > 0
+      and win_config.width < 1
+      and math.floor(vim.o.columns * win_config.width)
+    or win_config.width
+  local height = win_config.height > 0
+      and win_config.height < 1
+      and math.floor(vim.o.lines * win_config.height)
+    or win_config.height
+
+  local final_win_config = vim.deepcopy(win_config)
+  final_win_config.width = width
+  final_win_config.height = height
+
+  if final_win_config.row == nil then
+    final_win_config.row = math.floor((vim.o.lines - height) / 2)
+  end
+  if final_win_config.col == nil then
+    final_win_config.col = math.floor((vim.o.columns - width) / 2)
+  end
+
+  local win_id = vim.api.nvim_open_win(buffer_number, true, final_win_config)
+
+  for key, value in pairs(win_style_options) do
+    -- Using pcall is still a good idea to protect against invalid option names.
+    pcall(function()
+      vim.wo[win_id][key] = value
+    end)
+  end
+end
+
+---
 -- Opens a file at a given path. If the file is already open in a window,
 -- it jumps to that window. Otherwise, it opens the file in the current window
 -- or via a specified command (e.g., 'vsplit').
 -- @param full_path (string): The absolute path to the file.
--- @param open_cmd (string|nil): Optional vim command to open the file (e.g., "vsplit", "tabnew").
+-- @param open_cmd (string|nil): Optional vim command to open the file (e.g., "vsplit", "tabnew", "float").
 --
 M._open_file = function(full_path, open_cmd)
   local abs_path = vim.fn.fnamemodify(full_path, ":p")
-  local buffer_number = vim.fn.bufnr(abs_path)
+  local buffer_number = vim.fn.bufnr(abs_path, true)
+
+  if open_cmd == "float" then
+    _open_file_in_float(buffer_number)
+    return
+  end
 
   -- If buffer is already open and visible, jump to its window.
   if buffer_number ~= -1 then
@@ -221,7 +316,13 @@ M.follow_link = function(open_cmd)
       filename = filename:sub(2, -1)
     end
     local full_path = vim.fs.joinpath(active_wiki_path, filename)
-    M._open_file(full_path, open_cmd)
+    -- reuse the current floating window to open the new link.
+    if is_float() and not open_cmd then
+      local bn_to_open = vim.fn.bufnr(full_path, true)
+      vim.api.nvim_win_set_buf(0, bn_to_open)
+    else
+      M._open_file(full_path, open_cmd)
+    end
   else
     vim.notify("No link under cursor.", vim.log.levels.WARN, { title = "neowiki" })
   end
@@ -283,6 +384,14 @@ end
 --
 M.open_wiki_new_tab = function(name)
   open_wiki_index(name, "tabnew")
+end
+
+---
+-- Public function to open a wiki's index page in a floating window.
+-- @param name (string|nil): The name of the wiki to open. Prompts if nil and multiple wikis exist.
+--
+M.open_wiki_floating = function(name)
+  open_wiki_index(name, "float")
 end
 
 ---
