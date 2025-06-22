@@ -15,20 +15,23 @@
 
 ## 🔥 Key Features
 
+* Flexible Wiki Opening 🪟  
+Open wikis your way —  in the current buffer, a new tab, or a sleek floating window for distraction-free note-taking
+
 - **Seamless Linking & Navigation** 🔗  
 Create and track markdown links with `<CR>`, split with `<S-CR>` or `<C-CR>`. Navigate smoothly with `<Tab>`/`<S-Tab>` and `<BS>`
 
 - **Smart GTD** ✅  
-Toggle tasks with <leader>wt ([ ] to [x]), see nested progress updated in real-time.
+Toggle tasks with <leader>wt ([ ] to [x]), see nested progress updated in real-time
 
 - **Multi-Wiki & Nested Support** 📂  
-Manage multiple wikis (e.g., work, personal) and nested index.md with ease.
+Manage multiple wikis (e.g., work, personal) and nested index.md with ease
 
 - **Wiki Management** 🛠️  
-Delete pages with <leader>wd and clean broken links with built-in tools.
+Delete pages with <leader>wd and clean broken links with built-in tools
 
 - **Neovim Native** ⚙️  
-Harness Neovim 0.10+ with Lua speed, integrating seamlessly with Treesitter, markdown rendering, completion, pickers, and your setup out of the box.
+Harness Neovim 0.10+ with Lua speed, integrating seamlessly with Treesitter, markdown rendering, completion, pickers, and your setup out of the box
 
 ## 📷 Quick Peek
 ![Demo GIF](https://github.com/echaya/neowiki.nvim/blob/main/assets/demo.gif)
@@ -53,6 +56,7 @@ Requires **Neovim >= 0.10**. For the best experience, install Treesitter’s `ma
   },
   keys = {
     { "<leader>ww", "<cmd>lua require('neowiki').open_wiki()<cr>", desc = "Open Wiki" },
+    { "<leader>wW", "<cmd>lua require('neowiki').open_wiki_floating()<cr>", desc = "Open Wiki in Floating Window" },
     { "<leader>wT", "<cmd>lua require('neowiki').open_wiki_in_new_tab()<cr>", desc = "Open Wiki in Tab" },
   },
 }
@@ -171,6 +175,23 @@ require("neowiki").setup({
     -- The highlight group to use for the progress virtual text.
     gtd_progress_hl_group = "Comment",
   },
+
+  -- Configuration for opening wiki in floating window.
+  floating_wiki = {
+    -- Config for nvim_open_win(). Defines the window's structure,
+    -- position, and border.
+    open = {
+      relative = "editor",
+      width = 0.85,
+      height = 0.85,
+      border = "rounded",
+    },
+
+    -- Options for nvim_win_set_option(). Defines the style
+    -- within the window after it's created.
+    style = {},
+  },
+
 })
 ```
 
@@ -191,4 +212,3 @@ Big thanks to **kiwi.nvim** by [serenevoid](https://github.com/serenevoid/kiwi.n
 ## 📜 License
 
 [MIT License](./LICENSE)
-
