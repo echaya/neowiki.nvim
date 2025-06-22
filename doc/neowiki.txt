@@ -1,6 +1,6 @@
-*neowiki.nvim
+*neowiki.nvim*
 
-MIT License Copyright (c) 2024 echaya
+MIT License Copyright (c) 2025 echaya
 
 ==============================================================================
 
@@ -26,23 +26,26 @@ Getting Things Done (GTD).
 
 2. Features                                   *neowiki-features*
 
-- *Flexible Wiki Opening*
-Open wikis your way —  in the current buffer, a new tab, or a sleek floating window for distraction-free note-taking.
+- _Flexible Wiki Opening_
+  Open wikis your way — in the current buffer, a new tab, or a sleek floating window 
+  for distraction-free note-taking.
 
 - *Seamless Linking & Navigation*
-Create and track markdown links with <CR>, split with <S-CR> or <C-CR>. Navigate smoothly with <Tab>/<S-Tab> and <BS>.
+  Create and track markdown links with <CR>, split with <S-CR> or <C-CR>. 
+  Navigate smoothly with <Tab>/<S-Tab> and <BS>.
 
-- **Smart GTD**
-Toggle tasks with <leader>wt ([ ] to [x]), see nested progress updated in real-time.
+- *Smart GTD*
+  Toggle tasks with <leader>wt ([ ] to [x]), see nested progress updated in real-time.
 
-- **Multi-Wiki & Nested Support*
-Manage multiple wikis (e.g., work, personal) and nested index.md with ease.
+- *Multi-Wiki & Nested Support*
+  Manage multiple wikis (e.g., work, personal) and nested index.md with ease.
 
-- *Wiki Management*
-Delete pages with <leader>wd and clean broken links with built-in tools.
+- _Wiki Management_
+  Delete pages with <leader>wd and clean broken links with built-in tools.
 
-- *Neovim Native*
-Harness Neovim 0.10+ with Lua speed, integrating seamlessly with Treesitter, markdown rendering, completion, pickers, and your setup out of the box.
+- _Neovim Native_
+  Harness Neovim 0.10+ with Lua speed, integrating seamlessly with Treesitter, 
+  markdown rendering, completion, pickers, and your setup out of the box.
 
 ==============================================================================
 
@@ -67,7 +70,22 @@ Using lazy.nvim:
     { "<leader>wT", "<cmd>lua require('neowiki').open_wiki_new_tab()<cr>", desc = "Open Wiki in Tab" },
   },
 }
-<
+
+Using Mini.deps:
+>lua
+require("mini.deps").add("echaya/neowiki.nvim")
+require("neowiki").setup()
+vim.keymap.set("n", "<leader>ww", require("neowiki").open_wiki, { desc = "Open Wiki" })
+vim.keymap.set("n", "<leader>wW", require("neowiki").open_wiki_floating, { desc = "Open Floating Wiki" })
+vim.keymap.set("n", "<leader>wT", require("neowiki").open_wiki_new_tab, { desc = "Open Wiki in Tab" })
+
+Using Vim-Plug:
+>lua
+Plug 'echaya/neowiki.nvim'
+lua require('neowiki').setup()
+lua vim.keymap.set("n", "<leader>ww", require("neowiki").open_wiki, { desc = "Open Wiki" })
+lua vim.keymap.set("n", "<leader>wW", require("neowiki").open_wiki_floating, { desc = "Open Floating Wiki" })
+lua vim.keymap.set("n", "<leader>wT", require("neowiki").open_wiki_new_tab, { desc = "Open Wiki in Tab" })
 
 ==============================================================================
 
@@ -109,7 +127,7 @@ require("neowiki").setup({
     toggle_task = "<leader>wt",
     next_link = "<Tab>",
     prev_link = "<S-Tab>",
-    jump_to_index = "<Backspace>",
+    jump_to_index = "<BS>",
     delete_page = "<leader>wd",
     cleanup_links = "<leader>wc",
   },
@@ -135,7 +153,6 @@ require("neowiki").setup({
     -- within the window after it's created.
     style = {},
   },
-
 })
 <
 
@@ -148,21 +165,21 @@ Default Key Mappings
 The following logical actions are mapped by default. You can change the key
 for any action in the `keymaps` table of your setup configuration.
 
-| Mode   | Key binding     | Action Description                |
-|--------|-----------------|-----------------------------------|
-| Normal | `<CR>`          | Follow link under cursor          |
-| Visual | `<CR>`          | Create link from selection        |
-| Normal | `<S-CR>`        | Follow link in a vertical split   |
-| Visual | `<S-CR>`        | Create link, open in vsplit       |
-| Normal | `<C-CR>`        | Follow link in a horizontal split |
-| Visual | `<C-CR>`        | Create link, open in split        |
-| Normal | `<Tab>`         | Jump to the next link in buffer   |
-| Normal | `<S-Tab>`       | Jump to the previous link         |
-| Normal | `<Backspace>`   | Jump to the current wiki's index  |
-| Normal | `<leader>wt`    | Toggle task status on current line|
-| Visual | `<leader>wt`    | Toggle task status for selection  |
-| Normal | `<leader>wd`    | Delete the current wiki page      |
-| Normal | `<leader>wc`    | Clean up broken links in file     |
+| Mode     | Key binding       | Action Description                  |
+| -------- | ----------------- | ----------------------------------- |
+| Normal   | `<CR>`            | Follow link under cursor            |
+| Visual   | `<CR>`            | Create link from selection          |
+| Normal   | `<S-CR>`          | Follow link in a vertical split     |
+| Visual   | `<S-CR>`          | Create link, open in vsplit         |
+| Normal   | `<C-CR>`          | Follow link in a horizontal split   |
+| Visual   | `<C-CR>`          | Create link, open in split          |
+| Normal   | `<Tab>`           | Jump to the next link in buffer     |
+| Normal   | `<S-Tab>`         | Jump to the previous link           |
+| Normal   | `<BS>`            | Jump to the current wiki's index    |
+| Normal   | `<leader>wt`      | Toggle task status on current line  |
+| Visual   | `<leader>wt`      | Toggle task status for selection    |
+| Normal   | `<leader>wd`      | Delete the current wiki page        |
+| Normal   | `<leader>wc`      | Clean up broken links in file       |
 
 ==============================================================================
 
@@ -200,6 +217,17 @@ tab.
 Usage:
 >lua
   vim.keymap.set('n', '<leader>wT', "<cmd>lua require('neowiki').open_wiki_new_tab()<cr>")
+<
+
+------------------------------------------------------------------------------
+*neowiki.open_wiki_floating({name})*
+
+Same as |neowiki.open_wiki()|, but opens the wiki's index page in a floating
+window.
+
+Usage:
+>lua
+  vim.keymap.set('n', '<leader>wW', "<cmd>lua require('neowiki').open_wiki_floating()<cr>")
 <
 
 vim:tw=78:ts=8:noet:ft=help:norl:
