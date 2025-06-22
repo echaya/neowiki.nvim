@@ -39,7 +39,7 @@ Harness Neovim 0.10+ with Lua speed, integrating seamlessly with Treesitter, mar
 *neowiki.nvim features in action.*
 
 
-## 🛠️ Installation
+## 🛠️ Getting Started
 
 Requires **Neovim >= 0.10**. For the best experience, install Treesitter’s `markdown` and `markdown_inline` parsers.
 
@@ -56,8 +56,8 @@ Requires **Neovim >= 0.10**. For the best experience, install Treesitter’s `ma
   },
   keys = {
     { "<leader>ww", "<cmd>lua require('neowiki').open_wiki()<cr>", desc = "Open Wiki" },
-    { "<leader>wW", "<cmd>lua require('neowiki').open_wiki_floating()<cr>", desc = "Open Wiki in Floating Window" },
-    { "<leader>wT", "<cmd>lua require('neowiki').open_wiki_in_new_tab()<cr>", desc = "Open Wiki in Tab" },
+    { "<leader>wW", "<cmd>lua require('neowiki').open_wiki_floating()<cr>", desc = "Open Floating Wiki" },
+    { "<leader>wT", "<cmd>lua require('neowiki').open_wiki_new_tab()<cr>", desc = "Open Wiki in Tab" },
   },
 }
 ```
@@ -66,22 +66,36 @@ Requires **Neovim >= 0.10**. For the best experience, install Treesitter’s `ma
 ```lua
 require("mini.deps").add("echaya/neowiki.nvim")
 require("neowiki").setup()
+vim.keymap.set("n", "<leader>ww", require("neowiki").open_wiki, { desc = "Open Wiki" })
+vim.keymap.set( "n", "<leader>wW", require("neowiki").open_wiki_floating, { desc = "Open Floating Wiki" })
+vim.keymap.set( "n", "<leader>wT", require("neowiki").open_wiki_new_tab, { desc = "Open Wiki in Tab" })
 ```
 
 ### Using Vim-Plug
 ```vim
 Plug 'echaya/neowiki.nvim'
 lua require('neowiki').setup()
+lua vim.keymap.set("n", "<leader>ww", require("neowiki").open_wiki, { desc = "Open Wiki" })
+lua vim.keymap.set( "n", "<leader>wW", require("neowiki").open_wiki_floating, { desc = "Open Floating Wiki" })
+lua vim.keymap.set( "n", "<leader>wT", require("neowiki").open_wiki_new_tab, { desc = "Open Wiki in Tab" })
+```
+
+### Custom Keymap
+```lua
+-- open a specific wiki defined in wiki_dirs
+vim.keymap.set("n", "<leader>wk", function()
+  require("neowiki").open_wiki("work")
+end, { desc = "Open Work Wiki" })
 ```
 
 
 ## 📝 Usage
 
 ### Quick Start
-1. **Open a Wiki**: Use `<leader>ww` or `<leader>wT` to start.
-2. **Create a Note**: Select text (e.g., “My Project”), press `<CR>` to create `[My Project](./My_Project.md)` and open it.
+1. **Open Wiki**: Use `<leader>ww`, `<loeader>wW` or `<leader>wT` to start.
+2. **Create Note**: Select text (e.g., “My Project”), press `<CR>` to create `[My Project](./My_Project.md)` and open it.
 3. **Manage Tasks**: Use `<leader>wt` to toggle tasks. Progress (e.g., `[ 75% ]`) will be displayed for nested tasks
-4. **Navigate**: Use `<Tab>`/`<S-Tab>` for links, `<Backspace>` for the index, or `<leader>wc` to clean broken links.
+4. **Navigate**: Use `<Tab>`/`<S-Tab>` for links, `<BS>` for the index, or `<leader>wc` to clean broken links.
 5. **Save**: Simply `:w`.
 
 ### Example Wiki Index
@@ -108,21 +122,21 @@ lua require('neowiki').setup()
 ## ⌨️ Default Keybindings
 
 
-| Mode   | Key           | Action                          | Description                              |
-|--------|---------------|---------------------------------|------------------------------------------|
-| Normal | `<CR>`        | Follow link                     | Open link under cursor                   |
-| Visual | `<CR>`        | Create link                     | Link selected text                       |
-| Normal | `<S-CR>`      | Follow link (vsplit)            | Open link in vertical split              |
-| Visual | `<S-CR>`      | Create link (vsplit)            | Create link, open in vertical split      |
-| Normal | `<C-CR>`      | Follow link (split)            | Open link in horizontal split            |
-| Visual | `<C-CR>`      | Create link (split)            | Create link, open in horizontal split    |
-| Normal | `<Tab>`       | Next link                       | Navigate to next link                        |
-| Normal | `<S-Tab>`     | Previous link                   | Navigate to previous link                    |
-| Normal | `<Backspace>` | Jump to index                   | Open wiki’s `index.md`                   |
-| Normal | `<leader>wd`  | Delete page                     | Delete current wiki page                 |
-| Normal | `<leader>wc`  | Clean broken links              | Remove broken links from page            |
-| Normal | `<leader>wt`  | Toggle task                     | Open and toggle task status (`[ ]` ↔ `[x]`)       |
-| Visual | `<leader>wt`  | Toggle tasks                    | Bulk toggle tasks in selection                |
+| Mode   | Key           | Action               | Description                                 |
+|--------|---------------|----------------------|---------------------------------------------|
+| Normal | `<CR>`        | Follow link          | Open link under cursor                      |
+| Visual | `<CR>`        | Create link          | Link selected text                          |
+| Normal | `<S-CR>`      | Follow link (vsplit) | Open link in vertical split                 |
+| Visual | `<S-CR>`      | Create link (vsplit) | Create link, open in vertical split         |
+| Normal | `<C-CR>`      | Follow link (split)  | Open link in horizontal split               |
+| Visual | `<C-CR>`      | Create link (split)  | Create link, open in horizontal split       |
+| Normal | `<Tab>`       | Next link            | Navigate to next link                       |
+| Normal | `<S-Tab>`     | Previous link        | Navigate to previous link                   |
+| Normal | `<Backspace>` | Jump to index        | Open wiki’s `index.md`                      |
+| Normal | `<leader>wd`  | Delete page          | Delete current wiki page                    |
+| Normal | `<leader>wc`  | Clean broken links   | Remove broken links from page               |
+| Normal | `<leader>wt`  | Toggle task          | Open and toggle task status (`[ ]` ↔ `[x]`) |
+| Visual | `<leader>wt`  | Toggle tasks         | Bulk toggle tasks in selection              |
 
 
 ## ⚙️ Default Configuration
@@ -198,10 +212,10 @@ require("neowiki").setup({
 
 ## 🤝 Contributing
 
-- ⭐ **Star** it today and together we can make neowiki.nvim awesome!
-- 🐛 **Issues**: Report bugs at [GitHub Issues](https://github.com/echaya/neowiki.nvim/issues).
-- 💡 **PRs**: Features or fixes are welcome.
-- 📣 **Feedback**: Share ideas in [GitHub Discussions](https://github.com/echaya/neowiki.nvim/discussions).
+- ⭐ **Star** it today and together we can make neowiki.nvim awesome
+- 🐛 **Issues**: Report bugs at [GitHub Issues](https://github.com/echaya/neowiki.nvim/issues)
+- 💡 **PRs**: Features or fixes are welcome
+- 📣 **Feedback**: Share ideas in [GitHub Discussions](https://github.com/echaya/neowiki.nvim/discussions)
 
 
 ## 🙏 Thanks
