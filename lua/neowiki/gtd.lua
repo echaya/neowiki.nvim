@@ -88,9 +88,17 @@ local function _build_gtd_tree(bufnr)
   for i = 1, #lines do
     local node = nodes_by_lnum[i]
     if node then
+      -- Set the current node as the last seen for its level.
       last_nodes_by_level[node.level] = node
+
+      for level = node.level + 1, #last_nodes_by_level do
+        if last_nodes_by_level[level] then
+          last_nodes_by_level[level] = nil
+        end
+      end
+
+      -- Find the nearest parent at a lower indentation level.
       if node.level > 0 then
-        -- Find the nearest parent at a lower indentation level
         for level = node.level - 1, 0, -1 do
           if last_nodes_by_level[level] then
             node.parent = last_nodes_by_level[level]
@@ -361,7 +369,10 @@ gtd.attach_to_buffer = function(bufnr)
   })
 
   if not attached then
-    vim.notify("neowiki: Failed to attach GTD handler to buffer. " .. tostring(err), vim.log.levels.WARN)
+    vim.notify(
+      "neowiki: Failed to attach GTD handler to buffer. " .. tostring(err),
+      vim.log.levels.WARN
+    )
   end
 end
 
