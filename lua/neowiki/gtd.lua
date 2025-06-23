@@ -276,9 +276,7 @@ gtd.toggle_task = function(opts)
   end
 
   local function are_all_children_done(node)
-    if #node.children == 0 then
-      return false
-    end
+    if #node.children == 0 then return false end
     local has_task_children = false
     for _, child in ipairs(node.children) do
       if child.is_task then
@@ -303,9 +301,7 @@ gtd.toggle_task = function(opts)
 
   local function process_node(lnum)
     local node = cache.nodes[lnum]
-    if not node then
-      return
-    end
+    if not node then return end
 
     if not node.is_task then
       local new_state_is_done = are_all_children_done(node)
@@ -322,14 +318,51 @@ gtd.toggle_task = function(opts)
   end
 
   if opts.visual then
+    -- For visual mode, first perform a validation pass.
     local start_ln, end_ln = vim.fn.line("'<"), vim.fn.line("'>")
+    local first_node_state = nil
+    local uniform_state = true
+
+    local function get_node_state(node)
+      if not node then return "INVALID" end
+      if not node.is_task then return "LIST_ITEM" end
+      if node.is_done then return "COMPLETE" end
+      return "NOT_COMPLETE"
+    end
+
+    -- 1. Validation Pass
+    for i = start_ln, end_ln do
+      local node = cache.nodes[i]
+      local current_state = get_node_state(node)
+
+      if current_state == "INVALID" then
+        vim.notify("Neowiki: Selection contains non-list items. Aborting.", vim.log.levels.WARN)
+        return
+      end
+
+      if not first_node_state then
+        first_node_state = current_state
+      elseif first_node_state ~= current_state then
+        uniform_state = false
+        break
+      end
+    end
+
+    if not uniform_state then
+      vim.notify("Neowiki: Selection contains items with mixed states. Aborting.", vim.log.levels.WARN)
+      return
+    end
+
+    -- 2. Action Pass (only if validation passed)
     for i = start_ln, end_ln do
       process_node(i)
     end
   else
+    -- For normal mode, process the single line directly.
     process_node(vim.api.nvim_win_get_cursor(0)[1])
   end
 
+  -- Apply all collected changes to the buffer.
   if not vim.tbl_isempty(lines_to_change) then
     local original_cursor = vim.api.nvim_win_get_cursor(0)
     for lnum, line in pairs(lines_to_change) do
