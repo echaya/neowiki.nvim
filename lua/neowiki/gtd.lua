@@ -14,7 +14,7 @@ local gtd_cache = {}
 -- @return (table|nil) A table with parsed info, or nil if not a list item.
 --
 local function _parse_line(line)
-  -- First, try to match the line as a full task item. This is the most specific pattern.
+  -- First, try to match the line as a full task item.
   local task_prefix = line:match("^(%s*[%*%-+]%s*%[.%]%s+)") -- Unordered task
   if not task_prefix then
     task_prefix = line:match("^(%s*%d+[.%)%)]%s*%[.%]%s+)") -- Ordered task
@@ -91,6 +91,7 @@ local function _build_gtd_tree(bufnr)
       -- Set the current node as the last seen for its level.
       last_nodes_by_level[node.level] = node
 
+      -- Invalidate all deeper indentation levels to prevent incorrect parent assignment.
       for level = node.level + 1, #last_nodes_by_level do
         if last_nodes_by_level[level] then
           last_nodes_by_level[level] = nil
@@ -216,9 +217,18 @@ local function _apply_tree_validation(bufnr)
   return false
 end
 
---------------------------------------------------------------------------------
--- Public API and Buffer Operations
---------------------------------------------------------------------------------
+---
+-- Runs the full update pipeline: builds tree, validates, rebuilds if needed, and updates UI.
+-- @param b (number) The buffer number.
+--
+local function run_update_pipeline(b)
+  _build_gtd_tree(b)
+  local changes_made = _apply_tree_validation(b)
+  if changes_made then
+    _build_gtd_tree(b)
+  end
+  gtd.update_progress(b)
+end
 
 ---
 -- Updates the virtual text for GTD progress based on the cached tree.
@@ -276,7 +286,9 @@ gtd.toggle_task = function(opts)
   end
 
   local function are_all_children_done(node)
-    if #node.children == 0 then return false end
+    if #node.children == 0 then
+      return false
+    end
     local has_task_children = false
     for _, child in ipairs(node.children) do
       if child.is_task then
@@ -301,8 +313,9 @@ gtd.toggle_task = function(opts)
 
   local function process_node(lnum)
     local node = cache.nodes[lnum]
-    if not node then return end
-
+    if not node then
+      return
+    end
     if not node.is_task then
       local new_state_is_done = are_all_children_done(node)
       local current_line = get_future_line(lnum)
@@ -318,28 +331,28 @@ gtd.toggle_task = function(opts)
   end
 
   if opts.visual then
-    -- For visual mode, first perform a validation pass.
     local start_ln, end_ln = vim.fn.line("'<"), vim.fn.line("'>")
     local first_node_state = nil
     local uniform_state = true
-
     local function get_node_state(node)
-      if not node then return "INVALID" end
-      if not node.is_task then return "LIST_ITEM" end
-      if node.is_done then return "COMPLETE" end
+      if not node then
+        return "INVALID"
+      end
+      if not node.is_task then
+        return "LIST_ITEM"
+      end
+      if node.is_done then
+        return "COMPLETE"
+      end
       return "NOT_COMPLETE"
     end
-
-    -- 1. Validation Pass
     for i = start_ln, end_ln do
       local node = cache.nodes[i]
       local current_state = get_node_state(node)
-
       if current_state == "INVALID" then
         vim.notify("Neowiki: Selection contains non-list items. Aborting.", vim.log.levels.WARN)
         return
       end
-
       if not first_node_state then
         first_node_state = current_state
       elseif first_node_state ~= current_state then
@@ -347,28 +360,27 @@ gtd.toggle_task = function(opts)
         break
       end
     end
-
     if not uniform_state then
-      vim.notify("Neowiki: Selection contains items with mixed states. Aborting.", vim.log.levels.WARN)
+      vim.notify(
+        "Neowiki: Selection contains items with mixed states. Aborting.",
+        vim.log.levels.WARN
+      )
       return
     end
-
-    -- 2. Action Pass (only if validation passed)
     for i = start_ln, end_ln do
       process_node(i)
     end
   else
-    -- For normal mode, process the single line directly.
     process_node(vim.api.nvim_win_get_cursor(0)[1])
   end
 
-  -- Apply all collected changes to the buffer.
   if not vim.tbl_isempty(lines_to_change) then
     local original_cursor = vim.api.nvim_win_get_cursor(0)
     for lnum, line in pairs(lines_to_change) do
       vim.api.nvim_buf_set_lines(bufnr, lnum - 1, lnum, false, { line })
     end
     vim.api.nvim_win_set_cursor(0, original_cursor)
+    run_update_pipeline(bufnr)
   end
 end
 
@@ -377,15 +389,6 @@ end
 -- @param bufnr (number) The buffer number to attach to.
 --
 gtd.attach_to_buffer = function(bufnr)
-  local function run_update_pipeline(b)
-    _build_gtd_tree(b)
-    local changes_made = _apply_tree_validation(b)
-    if changes_made then
-      _build_gtd_tree(b)
-    end
-    gtd.update_progress(b)
-  end
-
   run_update_pipeline(bufnr)
 
   local attached, err = pcall(vim.api.nvim_buf_attach, bufnr, false, {
