@@ -204,7 +204,6 @@ M.setup_buffer = function()
     vim.b[0].wiki_root = wiki_root
     vim.b[0].active_wiki_path = active_wiki_path
     create_buffer_keymaps(0)
-    gtd.update_progress()
   end
 end
 
