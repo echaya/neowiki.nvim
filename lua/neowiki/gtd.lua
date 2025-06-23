@@ -1,175 +1,273 @@
 local config = require("neowiki.config")
 local gtd = {}
 
----
--- The namespace for placing virtual text for GTD progress.
--- @type integer
+-- Namespace for the progress virtual text.
 local progress_ns = vim.api.nvim_create_namespace("neowiki_gtd_progress")
 
+-- A module-level cache to hold the GTD tree structure for each buffer.
+-- The key is the buffer number, and the value is the cached tree data.
+local gtd_cache = {}
+
 ---
--- Calculates the starting column of a task's text content, i.e., after the `* [ ] ` marker.
--- @param line (string): The line content.
--- @return (number|nil): The indentation level (number of characters), or nil if not a task.
+-- Parses a single line to determine its list and task properties.
+-- @param line (string) The line content to parse.
+-- @return (table|nil) A table with parsed info (`is_task`, `is_done`, `level`,
+--   `content_col`), or nil if the line is not a list item.
 --
-local function get_task_content_start_col(line)
-  if not line then
-    return nil
+local function _parse_line(line)
+  -- Handles unordered lists like `* `, `- `, `+ `
+  local task_prefix = line:match("^(%s*[%*%-+]%s*%[.%]%s+)")
+  if not task_prefix then
+    -- Handles ordered lists like `1. `, `2) `
+    task_prefix = line:match("^(%s*%d+[.%)%)]%s*%[.%]%s+)")
   end
-  -- Matches unordered lists: "* [ ]"
-  local indent_str = line:match("^(%s*)[%*%-+]%s*%[.%]%s")
-  if indent_str then
-    return #indent_str
+
+  if task_prefix then
+    local indent_str = task_prefix:match("^(%s*)")
+    return {
+      is_task = true,
+      is_done = task_prefix:find("%[x%]") ~= nil,
+      level = #indent_str,
+      content_col = #task_prefix + 1,
+    }
   end
-  -- Matches ordered lists: "1. [ ]"
-  indent_str = line:match("^(%s*)%d+[.%)%)]%s*%[.%]%s")
-  if indent_str then
-    return #indent_str
+
+  -- Match list items that are not tasks.
+  local list_prefix = line:match("^(%s*[%*%-+]%s+)")
+  if not list_prefix then
+    list_prefix = line:match("^(%s*%d+[.%)%)]%s+)")
   end
+
+  if list_prefix then
+    local indent_str = list_prefix:match("^(%s*)")
+    return {
+      is_task = false,
+      is_done = nil,
+      level = #indent_str,
+      content_col = #list_prefix + 1,
+    }
+  end
+
   return nil
 end
 
 ---
--- Calculates the indentation level of a list marker (`*`, `1.`, etc.) by counting leading spaces.
--- @param line (string): The line content.
--- @return (number|nil): The indentation level, or nil if not a list item.
+-- Builds a tree structure representing the GTD tasks in the buffer.
+-- It runs in two passes:
+-- 1. Create a node for every list item in the file.
+-- 2. Link the nodes into a parent-child hierarchy based on indentation.
+-- @param bufnr (number) The buffer number to process.
 --
-local function get_list_item_indent(line)
-  if not line then
-    return nil
+local function _build_gtd_tree(bufnr)
+  if not vim.api.nvim_buf_is_loaded(bufnr) then
+    return
   end
-  -- Matches both ordered and unordered list markers at the start of the line.
-  local indent_str = line:match("^(%s*)[%*%-+]%s") or line:match("^(%s*)%d+[.%)%)]%s")
-  if indent_str then
-    return #indent_str
+
+  local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+  local nodes_by_lnum = {}
+  local root_nodes = {}
+  local last_nodes_by_level = {} -- Tracks the most recent node at each indent level.
+
+  -- Pass 1: Create a node for each list item.
+  for i, line in ipairs(lines) do
+    local parsed_info = _parse_line(line)
+    if parsed_info then
+      nodes_by_lnum[i] = {
+        lnum = i,
+        line_content = line,
+        level = parsed_info.level,
+        content_col = parsed_info.content_col,
+        is_task = parsed_info.is_task,
+        is_done = parsed_info.is_done,
+        parent = nil,
+        children = {},
+      }
+    end
   end
-  return nil
+
+  -- Pass 2: Link nodes into a hierarchy.
+  for i = 1, #lines do
+    local node = nodes_by_lnum[i]
+    if node then
+      -- Set the current node as the last seen for its level.
+      last_nodes_by_level[node.level] = node
+
+      -- Clear deeper indentation levels to prevent a new branch from being
+      -- incorrectly attached to an old, unrelated one.
+      for level = node.level + 1, #last_nodes_by_level do
+        if last_nodes_by_level[level] then
+          last_nodes_by_level[level] = nil
+        end
+      end
+
+      -- Find the nearest parent at a strictly lower indentation level.
+      if node.level > 0 then
+        for level = node.level - 1, 0, -1 do
+          if last_nodes_by_level[level] then
+            node.parent = last_nodes_by_level[level]
+            table.insert(node.parent.children, node)
+            break
+          end
+        end
+      end
+
+      if not node.parent then
+        table.insert(root_nodes, node)
+      end
+    end
+  end
+
+  gtd_cache[bufnr] = {
+    tree = root_nodes,
+    nodes = nodes_by_lnum,
+  }
+end
+
+-- Forward declaration is needed because _get_child_task_stats and
+-- _calculate_progress_from_node call each other (mutual recursion).
+local _calculate_progress_from_node
+
+---
+-- Gathers completion statistics for a node's direct children.
+-- @param node (table) The parent node whose children will be analyzed.
+-- @return (table) A table with stats: `{ progress_total, task_count, all_done }`.
+--
+local function _get_child_task_stats(node)
+  local stats = { progress_total = 0, task_count = 0, all_done = true }
+  for _, child in ipairs(node.children) do
+    if child.is_task then
+      stats.task_count = stats.task_count + 1
+      local child_progress, _ = _calculate_progress_from_node(child)
+      stats.progress_total = stats.progress_total + child_progress
+      if not child.is_done then
+        stats.all_done = false
+      end
+    end
+  end
+  -- A parent with no task children cannot be considered "all done" by its children.
+  if stats.task_count == 0 then
+    stats.all_done = false
+  end
+  return stats
 end
 
 ---
--- Finds the starting column of the text content in a plain markdown list item.
--- @param line (string): The line content.
--- @return (number|nil): The 1-based column number, or nil if not a list item.
+-- Recursively calculates the completion percentage for a given node.
+-- Acts as a wrapper around the more generic `_get_child_task_stats`.
+-- @param node (table) The node to calculate progress for.
+-- @return (number, boolean) Progress (0.0-1.0) and whether the node has children.
 --
-local function get_list_marker_info(line)
-  if not line then
-    return nil
+_calculate_progress_from_node = function(node)
+  if #node.children == 0 then
+    -- Leaf node: Progress is 1.0 if it's a completed task, otherwise 0.0.
+    return (node.is_task and node.is_done) and 1.0 or 0.0, false
   end
-  local _, match_end = line:find("^%s*[%*%-+]%s+") -- Unordered
-  if match_end then
-    return match_end + 1
+
+  local stats = _get_child_task_stats(node)
+
+  if stats.task_count == 0 then
+    -- Parent with no task children: Progress is determined by its own status.
+    return (node.is_task and node.is_done) and 1.0 or 0.0, true
   end
-  _, match_end = line:find("^%s*%d+[.%)%)]%s+") -- Ordered
-  if match_end then
-    return match_end + 1
-  end
-  return nil
+
+  return stats.progress_total / stats.task_count, true
 end
 
 ---
--- Checks if a task is marked as done (e.g., "[x]").
--- @param line (string): The line content.
--- @return (boolean|nil): True if done, false if not, nil if not a valid task checkbox.
+-- Validates the entire tree, ensuring parent task states match their children.
+-- This function is the core of the auto-correction logic.
+-- @param bufnr (number) The buffer to validate.
+-- @return (boolean) True if any changes were made to the buffer.
 --
-local function is_marked_done(line)
-  local state = line:match("%[(.)%]")
-  if state == "x" then
-    return true
-  elseif state == " " then
+local function _apply_tree_validation(bufnr)
+  local cache = gtd_cache[bufnr]
+  if not cache or not cache.nodes then
     return false
   end
-  return nil
-end
 
----
--- Recursively calculates progress and counts incomplete items for a task.
--- @param lines (table): The buffer lines.
--- @param start_ln (number): The 1-based line number of the task to analyze.
--- @return (number, boolean, number): A tuple with progress (0.0-1.0), a boolean for has_children, and the count of incomplete sub-tasks.
---
-local function calculate_progress(lines, start_ln)
-  local line = lines[start_ln]
-  if not line then
-    return 0, false, 0
-  end
+  local lines_to_change = {}
 
-  local parent_bound = get_task_content_start_col(line)
-  if not parent_bound then
-    return 0, false, 0
-  end
-  local parent_indent = get_list_item_indent(line)
-  if not parent_indent then
-    return 0, false, 0
-  end
-
-  local children_progress_total = 0
-  local children_count = 0
-  local total_incomplete_count = 0
-  local direct_child_bound = nil
-
-  for ln = start_ln + 1, #lines do
-    local child_line = lines[ln]
-    local child_indent = get_list_item_indent(child_line)
-
-    if child_indent and child_indent <= parent_indent then
-      break
-    end
-
-    local child_bound = get_task_content_start_col(child_line)
-    if child_bound then
-      if not direct_child_bound then
-        direct_child_bound = child_bound
+  -- Iterate backwards from the last line to the first. This is critical to
+  -- ensure children are processed before their parents.
+  for lnum = vim.api.nvim_buf_line_count(bufnr), 1, -1 do
+    local node = cache.nodes[lnum]
+    if node and node.is_task then
+      local should_be_done
+      if #node.children > 0 then
+        -- Rule 1: This is a parent task. Its state is dictated by its children.
+        -- Checks if all of a node's direct task-children are in a 'done' state.
+        should_be_done = _get_child_task_stats(node).all_done
+      else
+        -- Rule 2: This is a childless task. Its state is its own.
+        should_be_done = node.is_done
       end
 
-      if child_bound == direct_child_bound then
-        children_count = children_count + 1
-        local child_progress, _, child_incomplete = calculate_progress(lines, ln)
-        children_progress_total = children_progress_total + child_progress
-        total_incomplete_count = total_incomplete_count + child_incomplete
+      if node.is_done ~= should_be_done then
+        local line = node.line_content
+        local new_marker = should_be_done and "[x]" or "[ ]"
+        local old_marker = should_be_done and "%[ %]" or "%[x%]"
+        lines_to_change[lnum] = line:gsub(old_marker, new_marker, 1)
       end
     end
   end
 
-  if children_count > 0 then
-    return children_progress_total / children_count, true, total_incomplete_count
-  else
-    local done = is_marked_done(line)
-    return done and 1.0 or 0.0, false, done and 0 or 1
+  if not vim.tbl_isempty(lines_to_change) then
+    local original_cursor = vim.api.nvim_win_get_cursor(0)
+    for lnum, line in pairs(lines_to_change) do
+      vim.api.nvim_buf_set_lines(bufnr, lnum - 1, lnum, false, { line })
+    end
+    vim.api.nvim_win_set_cursor(0, original_cursor)
+    return true
   end
+  return false
 end
 
 ---
--- Clears old progress indicators and renders new ones for the entire buffer.
--- @param lines (table|nil): Optional. A table of buffer lines to avoid re-reading.
+-- Runs the full update pipeline: builds tree, validates, rebuilds if needed, and updates UI.
+-- @param bufnr (number) The buffer number.
 --
-gtd.update_progress = function(lines)
-  local bufnr = vim.api.nvim_get_current_buf()
-
-  if not config.gtd or not config.gtd.show_gtd_progress then
-    vim.api.nvim_buf_clear_namespace(bufnr, progress_ns, 0, -1)
+local function run_update_pipeline(bufnr)
+  if not vim.api.nvim_buf_is_loaded(bufnr) then
     return
   end
 
-  if not lines then
-    lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
-  end
-
-  -- If no tasks exist in the file, skip the rest of the checking
+  local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
   local content = table.concat(lines, "\n")
-  if not content:match("%[%s%]") and not content:match("%[x%]") then
-    vim.api.nvim_buf_clear_namespace(bufnr, progress_ns, 0, -1)
+  if not (content:find("%[ ]") or content:find("%[x]")) then
+    -- If no tasks are present, just clear any existing progress markers.
+    gtd.update_progress(bufnr)
     return
   end
-  vim.api.nvim_buf_clear_namespace(bufnr, progress_ns, 0, -1)
 
-  for ln = 1, #lines do
-    local line = lines[ln]
-    if get_task_content_start_col(line) then
-      local progress, has_children, incomplete_count = calculate_progress(lines, ln)
-      if has_children and incomplete_count > 0 then
-        local display_text = string.format(" [ %.1f%% ]", progress * 100)
-        local hl_group = config.gtd.gtd_progress_hl_group or "Comment"
-        vim.api.nvim_buf_set_extmark(bufnr, progress_ns, ln - 1, -1, {
-          virt_text = { { display_text, hl_group } },
+  _build_gtd_tree(bufnr)
+  local changes_made = _apply_tree_validation(bufnr)
+  -- If validation changed the buffer, the tree is now stale and must be rebuilt
+  -- to ensure the UI is updated with the final, correct state.
+  if changes_made then
+    _build_gtd_tree(bufnr)
+  end
+  gtd.update_progress(bufnr)
+end
+
+---
+-- Updates the virtual text for GTD progress based on the cached tree.
+-- @param bufnr (number) The buffer to update.
+--
+gtd.update_progress = function(bufnr)
+  vim.api.nvim_buf_clear_namespace(bufnr, progress_ns, 0, -1)
+  local cache = gtd_cache[bufnr]
+  if not config.gtd or not config.gtd.show_gtd_progress or not cache then
+    return
+  end
+
+  for _, node in pairs(cache.nodes) do
+    if node.is_task then
+      local progress, has_children = _calculate_progress_from_node(node)
+      -- Only show progress for parent tasks that are not yet 100% complete.
+      if has_children and progress < 1.0 then
+        local display_text = string.format(" [ %.0f%% ]", progress * 100)
+        vim.api.nvim_buf_set_extmark(bufnr, progress_ns, node.lnum - 1, -1, {
+          virt_text = { { display_text, config.gtd.gtd_progress_hl_group or "Comment" } },
           virt_text_pos = "eol",
         })
       end
@@ -177,340 +275,262 @@ gtd.update_progress = function(lines)
   end
 end
 
+-- Local state for the toggle operation, acting as a context.
+local toggle_op = {
+  lines_to_change = {},
+  cache = nil,
+}
+
 ---
--- Sets the state of a task in the provided table of lines.
--- @param lines (table): The buffer lines.
--- @param line_nr (number): The 1-based line number to modify.
--- @param should_be_done (boolean): The target state (true for done, false for not done).
---
-local function set_task_state(lines, line_nr, should_be_done)
-  local line = lines[line_nr]
-  if not line or get_task_content_start_col(line) == nil then
-    return
-  end
-  if is_marked_done(line) == should_be_done then
-    return
-  end
-  if should_be_done then
-    lines[line_nr] = line:gsub("%[ %]", "[x]", 1)
-  else
-    lines[line_nr] = line:gsub("%[x%]", "[ ]", 1)
-  end
+-- Gets the future content of a line, considering pending changes.
+-- @param lnum (number) The line number.
+-- @return (string|nil) The line content.
+local function _get_future_line(lnum)
+  return toggle_op.lines_to_change[lnum]
+    or (toggle_op.cache.nodes[lnum] and toggle_op.cache.nodes[lnum].line_content)
 end
 
 ---
--- Toggles the state of all child tasks recursively.
--- @param lines (table): The buffer lines.
--- @param line_number (number): The 1-based line number of the parent task.
--- @param state (boolean): The new state to apply to all children.
---
-local function toggle_children(lines, line_number, state)
-  local parent_indent = get_list_item_indent(lines[line_number])
-  if not parent_indent then
-    return
-  end
-
-  for ln = line_number + 1, #lines do
-    local line = lines[ln]
-    local new_indent = get_list_item_indent(line)
-
-    if new_indent and new_indent <= parent_indent then
-      break
-    end
-
-    if get_task_content_start_col(line) then
-      set_task_state(lines, ln, state)
-    end
-  end
-end
-
----
--- Finds the parent task of a given task.
--- It stops searching up a branch if it finds a structural parent that is not a task.
--- @param lines (table): The buffer lines.
--- @param cursor (number): The 1-based line number of the child task.
--- @return (number|nil): The line number of the parent task, or nil if none is found.
---
-local function find_parent(lines, cursor)
-  local child_line = lines[cursor]
-  if not child_line then
-    return nil
-  end
-
-  local child_indent = get_list_item_indent(child_line)
-  if not child_indent then
-    return nil -- Not a list item, can't have a parent.
-  end
-
-  for ln = cursor - 1, 1, -1 do
-    local line = lines[ln]
-    local parent_indent = get_list_item_indent(line)
-
-    if parent_indent then
-      if parent_indent < child_indent then
-        -- This is the structural parent. If it's a task, we've found our parent.
-        if get_task_content_start_col(line) then
-          return ln
-        else
-          -- If the structural parent is NOT a task, there is no valid task parent.
-          return nil
-        end
-      end
-    end
-  end
-  return nil -- No parent found.
-end
-
----
--- Checks if all immediate children of a parent task are complete.
--- @param lines (table): The buffer lines.
--- @param cursor (number): The 1-based line number of the parent task.
--- @return (boolean): True if all direct children are complete, otherwise false.
---
-local function is_children_complete(lines, cursor)
-  local parent_indent = get_list_item_indent(lines[cursor])
-  if not parent_indent then
-    return true
-  end
-
-  local child_bound = nil
-  local found_a_child = false
-  local all_done = true
-  for ln = cursor + 1, #lines do
-    local line = lines[ln]
-    local new_indent = get_list_item_indent(line)
-
-    if new_indent and new_indent <= parent_indent then
-      break
-    end
-
-    local new_bound = get_task_content_start_col(line)
-    if new_bound then
-      if not child_bound then
-        child_bound = new_bound
-      end
-      if new_bound == child_bound then
-        found_a_child = true
-        if not is_marked_done(line) then
-          all_done = false
-        end
-      end
-    end
-  end
-  return not found_a_child or all_done
-end
-
----
--- Updates the status of parent tasks based on the completion of their children.
--- @param lines (table): The buffer lines.
--- @param cursor (number): The 1-based line number of the task that was changed.
---
-local function validate_parent_tasks(lines, cursor)
-  local current_ln = cursor
-  while true do
-    local parent_ln = find_parent(lines, current_ln)
-    if not parent_ln then
-      break
-    end
-
-    if is_children_complete(lines, parent_ln) then
-      set_task_state(lines, parent_ln, true)
-    else
-      set_task_state(lines, parent_ln, false)
-    end
-
-    current_ln = parent_ln
-  end
-end
-
----
--- Runs a full consistency pass on a task and its relatives after a change.
--- @param lines (table): The full table of buffer lines.
--- @param ln (number): The 1-based line number of the task that was changed.
---
-local function _run_consistency_pass(lines, ln)
-  local line = lines[ln]
-  local bound = get_task_content_start_col(line)
-  if bound then
-    local is_done = is_marked_done(line)
-    -- Ensure children match the new state of the parent.
-    toggle_children(lines, ln, is_done)
-    -- Ensure parents are updated based on the state of their children.
-    validate_parent_tasks(lines, ln)
-  end
-end
-
----
--- Takes a simple list item line and returns a new line with an incomplete task marker.
--- @param line (string): The simple list item line.
--- @return (string): The new task line.
---
-local function _action_create_task(line)
-  local text_start_col = get_list_marker_info(line)
-  if not text_start_col then
+-- Generates the new line content for a task with a specific state.
+-- @param node (table) The task node.
+-- @param is_done (boolean) The desired state.
+-- @return (string) The modified line content.
+local function _get_line_for_state(node, is_done)
+  local line = _get_future_line(node.lnum)
+  if not line or not node.is_task then
     return line
   end
-  local prefix = line:sub(1, text_start_col - 1)
-  local suffix = line:sub(text_start_col)
-  return prefix .. "[ ] " .. suffix
+  local new_marker = is_done and "[x]" or "[ ]"
+  local old_marker = is_done and "%[ %]" or "%[x%]"
+  return line:gsub(old_marker, new_marker, 1)
 end
 
 ---
--- Takes an incomplete task line and returns a new line with a completed task marker.
--- @param line (string): The incomplete task line.
--- @return (string): The completed task line.
---
-local function _action_complete_task(line)
-  return line:gsub("%[ %]", "[x]", 1)
-end
-
----
--- Takes a completed task line and returns a new line with an incomplete task marker.
--- @param line (string): The completed task line.
--- @return (string): The incomplete task line.
---
-local function _action_uncomplete_task(line)
-  return line:gsub("%[x%]", "[ ]", 1)
-end
-
----
--- Handles toggling a single task. Operates on the provided `lines` table.
--- @param lines (table): The buffer lines, to be modified in-place.
---
-local function _toggle_single_line(lines)
-  local original_cursor = vim.api.nvim_win_get_cursor(0)
-  local cursor_ln = original_cursor[1]
-  local line = lines[cursor_ln]
-
-  local bound = get_task_content_start_col(line)
-  if bound == nil then
-    if get_list_marker_info(line) == nil then
-      vim.notify("Not a valid gtd task or list item.", vim.log.levels.WARN, { title = "neowiki" })
-      return
+-- Recursively marks a node and all its descendants with the new state.
+-- @param node (table) The starting node.
+-- @param new_state_is_done (boolean) The new state to apply.
+local function _cascade_down(node, new_state_is_done)
+  for _, child in ipairs(node.children) do
+    if child.is_task then
+      toggle_op.lines_to_change[child.lnum] = _get_line_for_state(child, new_state_is_done)
+      _cascade_down(child, new_state_is_done)
     end
-    lines[cursor_ln] = _action_create_task(line)
+  end
+end
+
+---
+-- Toggles the state of an existing task and cascades the change down to its children.
+-- @param node (table) The task node to toggle.
+local function _toggle_existing_task(node)
+  local new_state_is_done = not node.is_done
+  toggle_op.lines_to_change[node.lnum] = _get_line_for_state(node, new_state_is_done)
+  _cascade_down(node, new_state_is_done)
+end
+
+---
+-- Determines if a new task (converted from a list item) should be marked as done.
+-- This is true if it has task children and they are all already done.
+-- @param node (table) The node being converted to a task.
+-- @return (boolean) True if the new task should be marked done.
+local function _should_new_task_be_done(node)
+  if #node.children == 0 then
+    return false -- A new childless task always starts as not done.
+  end
+  local has_task_children = false
+  for _, child in ipairs(node.children) do
+    if child.is_task then
+      has_task_children = true
+      local child_line = _get_future_line(child.lnum)
+      -- If any child task is not done, the new parent task should not be done.
+      if child_line and child_line:find("%[ %]") then
+        return false
+      end
+    end
+  end
+  return has_task_children -- True only if it has task children and none are incomplete.
+end
+
+---
+-- Gathers all direct ancestors of a node that are plain list items (not tasks).
+-- @param start_node (table) The node to start searching up from.
+-- @return (table) A list of ancestor nodes.
+local function _get_non_task_ancestors(start_node)
+  local ancestors = {}
+  local current_node = start_node
+  while current_node.parent and not current_node.parent.is_task do
+    table.insert(ancestors, current_node.parent)
+    current_node = current_node.parent
+  end
+  return ancestors
+end
+
+---
+-- Converts one or more list items into tasks, handling user prompts for ancestor conversion.
+-- @param node (table) The primary list item to convert.
+-- @param is_batch_operation (boolean) True if part of a multi-line visual selection.
+local function _create_task_from_list_item(node, is_batch_operation)
+  local nodes_to_create = { node }
+
+  -- Only prompt to convert ancestors for single-line, interactive operations.
+  if not is_batch_operation then
+    local non_task_ancestors = _get_non_task_ancestors(node)
+    if #non_task_ancestors > 0 then
+      local prompt =
+        string.format("Convert %d parent item(s) to tasks as well?", #non_task_ancestors)
+      local choice = vim.fn.confirm(prompt, "&Yes\n&No", 2, "Question")
+      if choice == 1 then
+        for _, ancestor in ipairs(non_task_ancestors) do
+          table.insert(nodes_to_create, ancestor)
+        end
+      end
+    end
+  end
+
+  -- Process each node for creation. The list is naturally bottom-up, which is
+  -- required for `_should_new_task_be_done` to work correctly at each level.
+  for _, node_to_create in ipairs(nodes_to_create) do
+    local new_state_is_done = _should_new_task_be_done(node_to_create)
+    local current_line = _get_future_line(node_to_create.lnum)
+    local prefix = current_line:sub(1, node_to_create.content_col - 1)
+    local suffix = current_line:sub(node_to_create.content_col)
+    local marker = new_state_is_done and "[x] " or "[ ] "
+    toggle_op.lines_to_change[node_to_create.lnum] = prefix .. marker .. suffix
+  end
+end
+
+---
+-- Main handler for toggling a single line, dispatching to create or toggle.
+-- @param lnum (number) The line number to process.
+-- @param is_batch (boolean) True if part of a multi-line operation.
+local function _process_lnum(lnum, is_batch)
+  local node = toggle_op.cache.nodes[lnum]
+  if not node then
+    return
+  end
+
+  if not node.is_task then
+    _create_task_from_list_item(node, is_batch)
   else
-    local is_done = is_marked_done(line)
-    if is_done == nil then
-      vim.notify("Could not determine task state.", vim.log.levels.WARN, { title = "neowiki" })
-      return
-    end
-    lines[cursor_ln] = is_done and _action_uncomplete_task(line) or _action_complete_task(line)
-  end
-
-  _run_consistency_pass(lines, cursor_ln)
-  vim.api.nvim_win_set_cursor(0, original_cursor)
-end
-
----
--- Handles toggling tasks in a visual selection. Operates on the provided `lines` table.
--- @param lines (table): The buffer lines, to be modified in-place.
---
-local function _toggle_visual_selection(lines)
-  local start_ln, end_ln = vim.fn.line("'<"), vim.fn.line("'>")
-  if start_ln > end_ln then
-    start_ln, end_ln = end_ln, start_ln
-  end
-
-  local STATE_INVALID, STATE_SIMPLE_LIST, STATE_NOT_DONE, STATE_DONE = 0, 1, 2, 3
-
-  local function get_line_state(line)
-    if get_list_marker_info(line) == nil then
-      return STATE_INVALID
-    end
-    if get_task_content_start_col(line) == nil then
-      return STATE_SIMPLE_LIST
-    end
-    return is_marked_done(line) and STATE_DONE or STATE_NOT_DONE
-  end
-
-  local initial_state = get_line_state(lines[start_ln])
-
-  for i = start_ln, end_ln do
-    if get_line_state(lines[i]) ~= initial_state then
-      local msg = initial_state == STATE_INVALID
-          and "Visual selection contains non-list items. Aborting."
-        or "Visual selection contains tasks with mixed states. Aborting."
-      vim.notify(msg, vim.log.levels.WARN, { title = "neowiki" })
-      return
-    end
-  end
-
-  local uniform_action
-  if initial_state == STATE_SIMPLE_LIST then
-    uniform_action = _action_create_task
-  elseif initial_state == STATE_NOT_DONE then
-    uniform_action = _action_complete_task
-  elseif initial_state == STATE_DONE then
-    uniform_action = _action_uncomplete_task
-  else
-    return -- Invalid state, do nothing.
-  end
-
-  for i = start_ln, end_ln do
-    lines[i] = uniform_action(lines[i])
-  end
-  for i = start_ln, end_ln do
-    _run_consistency_pass(lines, i)
+    _toggle_existing_task(node)
   end
 end
 
 ---
--- Main public function to toggle a task's state. Orchestrates reading from
--- and writing to the buffer to minimize API calls.
--- @param opts (table|nil): Can contain `{ visual = true }` to trigger visual mode.
+-- Handles toggling tasks for a visual selection, including validation.
+-- @param start_ln (number) The starting line number of the selection.
+-- @param end_ln (number) The ending line number of the selection.
+local function _process_visual_selection(start_ln, end_ln)
+  local function get_node_state(node)
+    if not node then
+      return "INVALID"
+    end
+    if not node.is_task then
+      return "LIST_ITEM"
+    end
+    return node.is_done and "COMPLETE" or "NOT_COMPLETE"
+  end
+
+  -- 1. Validation Pass: Ensure all items in selection have a consistent state.
+  local first_node_state = nil
+  for i = start_ln, end_ln do
+    local node = toggle_op.cache.nodes[i]
+    local current_state = get_node_state(node)
+    if current_state == "INVALID" then
+      vim.notify("Neowiki: Selection contains non-list items. Aborting.", vim.log.levels.WARN)
+      return
+    end
+    if not first_node_state then
+      first_node_state = current_state
+    elseif first_node_state ~= current_state then
+      vim.notify(
+        "Neowiki: Selection contains items with mixed states. Aborting.",
+        vim.log.levels.WARN
+      )
+      return
+    end
+  end
+
+  -- 2. Action Pass: Process each line in the validated selection.
+  for i = start_ln, end_ln do
+    _process_lnum(i, true)
+  end
+end
+
+---
+-- Toggles the state of a task.
+-- @param opts (table|nil) Can contain `{ visual = true }`
 --
 gtd.toggle_task = function(opts)
   opts = opts or {}
   local bufnr = vim.api.nvim_get_current_buf()
-  local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
-  local original_lines_copy = vim.deepcopy(lines)
+
+  -- This ensures the function always operates on fresh data and prevents race
+  -- conditions with the debounced on_lines handler.
+  _build_gtd_tree(bufnr)
+
+  toggle_op.cache = gtd_cache[bufnr]
+  if not toggle_op.cache then
+    return -- Guard if buffer has no list items at all
+  end
+
+  -- Reset the pending changes for this operation.
+  toggle_op.lines_to_change = {}
 
   if opts.visual then
-    _toggle_visual_selection(lines)
+    local start_ln, end_ln = vim.fn.line("'<"), vim.fn.line("'>")
+    _process_visual_selection(start_ln, end_ln)
   else
-    _toggle_single_line(lines)
+    local lnum = vim.api.nvim_win_get_cursor(0)[1]
+    _process_lnum(lnum, false)
   end
 
-  if not vim.deep_equal(lines, original_lines_copy) then
-    vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, lines)
+  -- Apply accumulated changes to the buffer if any were made.
+  if not vim.tbl_isempty(toggle_op.lines_to_change) then
+    local original_cursor = vim.api.nvim_win_get_cursor(0)
+    for lnum, line in pairs(toggle_op.lines_to_change) do
+      vim.api.nvim_buf_set_lines(bufnr, lnum - 1, lnum, false, { line })
+    end
+    vim.api.nvim_win_set_cursor(0, original_cursor)
+    -- After making changes, run the full pipeline to validate and update UI.
+    run_update_pipeline(bufnr)
   end
-
-  gtd.update_progress(lines)
 end
 
 ---
--- Runs a full validation pass on all tasks in the buffer.
--- This is intended to be called from an autocommand on text change to handle
--- all cases, including adding, deleting, and moving tasks.
--- It iterates from the bottom up to ensure dependencies are resolved correctly.
+-- Attaches GTD functionality to a buffer. This is the main entry point from init.lua.
+-- @param bufnr (number) The buffer number to attach to.
 --
-gtd.run_full_validation = function()
-  local bufnr = vim.api.nvim_get_current_buf()
-  local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
-  local content = table.concat(lines, "\n")
+gtd.attach_to_buffer = function(bufnr)
+  -- Run the pipeline once when the buffer is first entered to establish state.
+  run_update_pipeline(bufnr)
 
-  -- If no tasks exist in the file, skip the rest of the checking
-  if not content:match("%[%s%]") and not content:match("%[x%]") then
-    return
-  end
+  -- Create a buffer-local autocommand group to ensure events are cleaned up
+  -- automatically when the buffer is closed or reloaded.
+  local group = vim.api.nvim_create_augroup("neowiki_gtd_listener_" .. bufnr, { clear = true })
 
-  local original_lines_copy = vim.deepcopy(lines)
+  -- Listen for text changes in both Insert and Normal mode.
+  vim.api.nvim_create_autocmd({ "TextChanged", "TextChangedI" }, {
+    group = group,
+    buffer = bufnr,
+    callback = function()
+      vim.defer_fn(function()
+        if vim.api.nvim_buf_is_valid(bufnr) then
+          run_update_pipeline(bufnr)
+        end
+      end, 200) -- Debounce delay in milliseconds.
+    end,
+    desc = "Debounced GTD update on text change",
+  })
 
-  -- Iterate from the bottom of the file to the top. This ensures that when
-  -- we validate a parent, its children have already been processed in this pass.
-  for ln = #lines, 1, -1 do
-    if get_task_content_start_col(lines[ln]) then
-      validate_parent_tasks(lines, ln)
-    end
-  end
-
-  if not vim.deep_equal(lines, original_lines_copy) then
-    -- Preserve cursor position across buffer updates
-    local cursor = vim.api.nvim_win_get_cursor(0)
-    vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, lines)
-    vim.api.nvim_win_set_cursor(0, cursor)
-  end
+  -- Listen for when the buffer is detached (e.g., closed) to clean up the cache.
+  -- This prevents memory leaks.
+  vim.api.nvim_create_autocmd({ "BufUnload" }, {
+    group = group,
+    buffer = bufnr,
+    callback = function()
+      gtd_cache[bufnr] = nil
+    end,
+    desc = "Clean up GTD cache on buffer detach",
+  })
 end
-
 return gtd

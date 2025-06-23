@@ -1,7 +1,6 @@
 local config = require("neowiki.config")
 local util = require("neowiki.util")
 local wiki = require("neowiki.wiki")
-local gtd = require("neowiki.gtd")
 local state = require("neowiki.state")
 
 local M = {}
@@ -144,25 +143,15 @@ M.setup = function(opts)
   vim.api.nvim_create_autocmd("BufEnter", {
     group = neowiki_augroup,
     pattern = markdown_patterns,
-    callback = wiki.setup_buffer,
-    desc = "Set neowiki keymaps for markdown files in wiki directories.",
-  })
-
-  -- Add an autocommand to update progress display on text changes.
-  vim.api.nvim_create_autocmd({ "TextChanged", "TextChangedI" }, {
-    group = neowiki_augroup,
-    pattern = markdown_patterns,
     callback = function()
-      -- Debounce the function to prevent it from running on every keystroke.
-      vim.defer_fn(function()
-        if vim.b.wiki_root and vim.api.nvim_buf_is_valid(0) then
-          gtd.run_full_validation()
-          gtd.update_progress()
-        end
-      end, 200) -- 200ms delay
+      wiki.setup_buffer()
+      if vim.b.wiki_root then
+        require("neowiki.gtd").attach_to_buffer(vim.api.nvim_get_current_buf())
+      end
     end,
-    desc = "Update neowiki gtd progress and state on text change.",
+    desc = "Set neowiki keymaps for markdown files in wiki directories.",
   })
 end
 
 return M
+
