@@ -51,7 +51,7 @@ end
 
 ---
 -- Builds a tree structure representing the GTD tasks in the buffer.
--- This is the heart of the caching system. It runs in two passes:
+-- It runs in two passes:
 -- 1. Create a node for every list item in the file.
 -- 2. Link the nodes into a parent-child hierarchy based on indentation.
 -- @param bufnr (number) The buffer number to process.
@@ -234,6 +234,19 @@ end
 -- @param b (number) The buffer number.
 --
 local function run_update_pipeline(b)
+  -- early exit if buffer is not valid or does not contain gtd-items
+  if not vim.api.nvim_buf_is_loaded(b) then
+    return
+  end
+
+  local lines = vim.api.nvim_buf_get_lines(b, 0, -1, false)
+  local content = table.concat(lines, "\n")
+  if not (content:find("%[ ]") or content:find("%[x]")) then
+    gtd.update_progress(b)
+    vim.notify("no task detected")
+    return
+  end
+
   _build_gtd_tree(b)
   local changes_made = _apply_tree_validation(b)
   -- If validation changed the buffer, the tree is now stale and must be rebuilt
@@ -275,9 +288,20 @@ end
 gtd.toggle_task = function(opts)
   opts = opts or {}
   local bufnr = vim.api.nvim_get_current_buf()
+
+  -- This ensures the function always operates on fresh data and prevents race
+  -- conditions with the debounced on_lines handler.
+  _build_gtd_tree(bufnr)
+
   local cache = gtd_cache[bufnr]
   if not cache then
     return
+  end -- Guard if buffer has no list items at all
+
+  -- The bootstrap logic for first-time task creation is now implicitly handled
+  -- by the main logic, as the cache is guaranteed to exist and be up-to-date.
+  if opts.visual and vim.tbl_isempty(cache.nodes) then
+    return -- Don't operate on an empty buffer in visual mode.
   end
 
   local lines_to_change = {}
@@ -344,8 +368,7 @@ gtd.toggle_task = function(opts)
       local prompt =
         string.format("Convert %d parent item(s) to tasks as well?", #non_task_ancestors)
       local choice = vim.fn.confirm(prompt, "&Yes\n&No", 2, "Question")
-      if choice == 1 then -- User selected "Yes"
-        -- Add the ancestors to the list of nodes to be created.
+      if choice == 1 then
         for _, ancestor in ipairs(non_task_ancestors) do
           table.insert(nodes_to_create, ancestor)
         end
@@ -439,10 +462,10 @@ gtd.attach_to_buffer = function(bufnr)
 
   -- Attach to the buffer to run the pipeline on any subsequent changes.
   local attached, err = pcall(vim.api.nvim_buf_attach, bufnr, false, {
-    on_lines = function(_, b, _, _, _, _)
+    on_lines = function(_, buffer, _, _, _, _)
       vim.defer_fn(function()
-        if vim.api.nvim_buf_is_valid(b) then
-          run_update_pipeline(b)
+        if vim.api.nvim_buf_is_valid(buffer) then
+          run_update_pipeline(buffer)
         end
       end, 200) -- Debounce to avoid excessive updates during rapid typing.
     end,
