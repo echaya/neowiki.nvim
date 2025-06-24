@@ -16,9 +16,11 @@ local gtd_cache = {}
 --
 local function _parse_line(line)
   -- First, try to match the line as a full task item (e.g., `* [ ] ...`).
+  -- Handles unordered lists like `* `, `- `, `+ `
   local task_prefix = line:match("^(%s*[%*%-+]%s*%[.%]%s+)")
   if not task_prefix then
-    task_prefix = line:match("^(%s*%d+[.%)%)]%s*%[.%]%s+)") -- Handles ordered lists like `1. `
+    -- Handles ordered lists like `1. `, `2) `
+    task_prefix = line:match("^(%s*%d+[.%)%)]%s*%[.%]%s+)")
   end
 
   if task_prefix then
@@ -31,6 +33,7 @@ local function _parse_line(line)
     }
   end
 
+  -- Match list items that are not tasks.
   local list_prefix = line:match("^(%s*[%*%-+]%s+)")
   if not list_prefix then
     list_prefix = line:match("^(%s*%d+[.%)%)]%s+)")
@@ -90,7 +93,8 @@ local function _build_gtd_tree(bufnr)
       -- Set the current node as the last seen for its level.
       last_nodes_by_level[node.level] = node
 
-      -- a new branch from being incorrectly attached to an old, unrelated one.
+      -- Clear deeper indentation levels to prevent a new branch from being
+      -- incorrectly attached to an old, unrelated one.
       for level = node.level + 1, #last_nodes_by_level do
         if last_nodes_by_level[level] then
           last_nodes_by_level[level] = nil
@@ -150,7 +154,7 @@ end
 
 ---
 -- Recursively calculates the completion percentage for a given node.
--- Now acts as a wrapper around the more generic `_get_child_task_stats`.
+-- Acts as a wrapper around the more generic `_get_child_task_stats`.
 -- @param node (table) The node to calculate progress for.
 -- @return (number, boolean) Progress (0.0-1.0) and whether the node has children.
 --
@@ -172,18 +176,17 @@ end
 
 ---
 -- Checks if all of a node's direct task-children are in a 'done' state.
--- Now acts as a simple wrapper around `_get_child_task_stats`.
+-- Acts as a simple wrapper around `_get_child_task_stats`.
 -- @param node (table) The parent node to check.
 -- @return (boolean) True if all task children are complete, otherwise false.
 --
 local function _are_all_task_children_done(node)
-  -- This function is used for tree validation and reads from the built cache.
   return _get_child_task_stats(node).all_done
 end
 
 ---
 -- Validates the entire tree, ensuring parent task states match their children.
--- This function is idempotent and is the core of the auto-correction logic.
+-- This function is the core of the auto-correction logic.
 -- @param bufnr (number) The buffer to validate.
 -- @return (boolean) True if any changes were made to the buffer.
 --
@@ -195,8 +198,8 @@ local function _apply_tree_validation(bufnr)
 
   local lines_to_change = {}
 
-  -- Iterate backwards from the last line to the first.
-  -- This is critical to ensure children are processed before their parents.
+  -- Iterate backwards from the last line to the first. This is critical to
+  -- ensure children are processed before their parents.
   for lnum = vim.api.nvim_buf_line_count(bufnr), 1, -1 do
     local node = cache.nodes[lnum]
     if node and node.is_task then
@@ -205,14 +208,15 @@ local function _apply_tree_validation(bufnr)
         -- Rule 1: This is a parent task. Its state is dictated by its children.
         should_be_done = _are_all_task_children_done(node)
       else
-        -- Rule 2: This is a childless task. Its state is its own and must be preserved.
+        -- Rule 2: This is a childless task. Its state is its own.
         should_be_done = node.is_done
       end
 
       if node.is_done ~= should_be_done then
         local line = node.line_content
-        lines_to_change[lnum] =
-          line:gsub(should_be_done and "%[ %]" or "%[x%]", should_be_done and "[x]" or "[ ]", 1)
+        local new_marker = should_be_done and "[x]" or "[ ]"
+        local old_marker = should_be_done and "%[ %]" or "%[x%]"
+        lines_to_change[lnum] = line:gsub(old_marker, new_marker, 1)
       end
     end
   end
@@ -230,31 +234,29 @@ end
 
 ---
 -- Runs the full update pipeline: builds tree, validates, rebuilds if needed, and updates UI.
--- This is the central orchestrator for all buffer changes.
--- @param b (number) The buffer number.
+-- @param bufnr (number) The buffer number.
 --
-local function run_update_pipeline(b)
-  -- early exit if buffer is not valid or does not contain gtd-items
-  if not vim.api.nvim_buf_is_loaded(b) then
+local function run_update_pipeline(bufnr)
+  if not vim.api.nvim_buf_is_loaded(bufnr) then
     return
   end
 
-  local lines = vim.api.nvim_buf_get_lines(b, 0, -1, false)
+  local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
   local content = table.concat(lines, "\n")
   if not (content:find("%[ ]") or content:find("%[x]")) then
-    gtd.update_progress(b)
-    vim.notify("no task detected")
+    -- If no tasks are present, just clear any existing progress markers.
+    gtd.update_progress(bufnr)
     return
   end
 
-  _build_gtd_tree(b)
-  local changes_made = _apply_tree_validation(b)
+  _build_gtd_tree(bufnr)
+  local changes_made = _apply_tree_validation(bufnr)
   -- If validation changed the buffer, the tree is now stale and must be rebuilt
   -- to ensure the UI is updated with the final, correct state.
   if changes_made then
-    _build_gtd_tree(b)
+    _build_gtd_tree(bufnr)
   end
-  gtd.update_progress(b)
+  gtd.update_progress(bufnr)
 end
 
 ---
@@ -263,13 +265,15 @@ end
 --
 gtd.update_progress = function(bufnr)
   vim.api.nvim_buf_clear_namespace(bufnr, progress_ns, 0, -1)
-  if not config.gtd or not config.gtd.show_gtd_progress or not gtd_cache[bufnr] then
+  local cache = gtd_cache[bufnr]
+  if not config.gtd or not config.gtd.show_gtd_progress or not cache then
     return
   end
 
-  for _, node in pairs(gtd_cache[bufnr].nodes) do
+  for _, node in pairs(cache.nodes) do
     if node.is_task then
       local progress, has_children = _calculate_progress_from_node(node)
+      -- Only show progress for parent tasks that are not yet 100% complete.
       if has_children and progress < 1.0 then
         local display_text = string.format(" [ %.0f%% ]", progress * 100)
         vim.api.nvim_buf_set_extmark(bufnr, progress_ns, node.lnum - 1, -1, {
@@ -278,6 +282,187 @@ gtd.update_progress = function(bufnr)
         })
       end
     end
+  end
+end
+
+-- Local state for the toggle operation, acting as a context.
+local toggle_op = {
+  lines_to_change = {},
+  cache = nil,
+}
+
+---
+-- Gets the future content of a line, considering pending changes.
+-- @param lnum (number) The line number.
+-- @return (string|nil) The line content.
+local function _get_future_line(lnum)
+  return toggle_op.lines_to_change[lnum]
+    or (toggle_op.cache.nodes[lnum] and toggle_op.cache.nodes[lnum].line_content)
+end
+
+---
+-- Generates the new line content for a task with a specific state.
+-- @param node (table) The task node.
+-- @param is_done (boolean) The desired state.
+-- @return (string) The modified line content.
+local function _get_line_for_state(node, is_done)
+  local line = _get_future_line(node.lnum)
+  if not line or not node.is_task then
+    return line
+  end
+  local new_marker = is_done and "[x]" or "[ ]"
+  local old_marker = is_done and "%[ %]" or "%[x%]"
+  return line:gsub(old_marker, new_marker, 1)
+end
+
+---
+-- Recursively marks a node and all its descendants with the new state.
+-- @param node (table) The starting node.
+-- @param new_state_is_done (boolean) The new state to apply.
+local function _cascade_down(node, new_state_is_done)
+  for _, child in ipairs(node.children) do
+    if child.is_task then
+      toggle_op.lines_to_change[child.lnum] = _get_line_for_state(child, new_state_is_done)
+      _cascade_down(child, new_state_is_done)
+    end
+  end
+end
+
+---
+-- Toggles the state of an existing task and cascades the change down to its children.
+-- @param node (table) The task node to toggle.
+local function _toggle_existing_task(node)
+  local new_state_is_done = not node.is_done
+  toggle_op.lines_to_change[node.lnum] = _get_line_for_state(node, new_state_is_done)
+  _cascade_down(node, new_state_is_done)
+end
+
+---
+-- Determines if a new task (converted from a list item) should be marked as done.
+-- This is true if it has task children and they are all already done.
+-- @param node (table) The node being converted to a task.
+-- @return (boolean) True if the new task should be marked done.
+local function _should_new_task_be_done(node)
+  if #node.children == 0 then
+    return false -- A new childless task always starts as not done.
+  end
+  local has_task_children = false
+  for _, child in ipairs(node.children) do
+    if child.is_task then
+      has_task_children = true
+      local child_line = _get_future_line(child.lnum)
+      -- If any child task is not done, the new parent task should not be done.
+      if child_line and child_line:find("%[ %]") then
+        return false
+      end
+    end
+  end
+  return has_task_children -- True only if it has task children and none are incomplete.
+end
+
+---
+-- Gathers all direct ancestors of a node that are plain list items (not tasks).
+-- @param start_node (table) The node to start searching up from.
+-- @return (table) A list of ancestor nodes.
+local function _get_non_task_ancestors(start_node)
+  local ancestors = {}
+  local current_node = start_node
+  while current_node.parent and not current_node.parent.is_task do
+    table.insert(ancestors, current_node.parent)
+    current_node = current_node.parent
+  end
+  return ancestors
+end
+
+---
+-- Converts one or more list items into tasks, handling user prompts for ancestor conversion.
+-- @param node (table) The primary list item to convert.
+-- @param is_batch_operation (boolean) True if part of a multi-line visual selection.
+local function _create_task_from_list_item(node, is_batch_operation)
+  local nodes_to_create = { node }
+
+  -- Only prompt to convert ancestors for single-line, interactive operations.
+  if not is_batch_operation then
+    local non_task_ancestors = _get_non_task_ancestors(node)
+    if #non_task_ancestors > 0 then
+      local prompt =
+        string.format("Convert %d parent item(s) to tasks as well?", #non_task_ancestors)
+      local choice = vim.fn.confirm(prompt, "&Yes\n&No", 2, "Question")
+      if choice == 1 then
+        for _, ancestor in ipairs(non_task_ancestors) do
+          table.insert(nodes_to_create, ancestor)
+        end
+      end
+    end
+  end
+
+  -- Process each node for creation. The list is naturally bottom-up, which is
+  -- required for `_should_new_task_be_done` to work correctly at each level.
+  for _, node_to_create in ipairs(nodes_to_create) do
+    local new_state_is_done = _should_new_task_be_done(node_to_create)
+    local current_line = _get_future_line(node_to_create.lnum)
+    local prefix = current_line:sub(1, node_to_create.content_col - 1)
+    local suffix = current_line:sub(node_to_create.content_col)
+    local marker = new_state_is_done and "[x] " or "[ ] "
+    toggle_op.lines_to_change[node_to_create.lnum] = prefix .. marker .. suffix
+  end
+end
+
+---
+-- Main handler for toggling a single line, dispatching to create or toggle.
+-- @param lnum (number) The line number to process.
+-- @param is_batch (boolean) True if part of a multi-line operation.
+local function _process_lnum(lnum, is_batch)
+  local node = toggle_op.cache.nodes[lnum]
+  if not node then
+    return
+  end
+
+  if not node.is_task then
+    _create_task_from_list_item(node, is_batch)
+  else
+    _toggle_existing_task(node)
+  end
+end
+
+---
+-- Handles toggling tasks for a visual selection, including validation.
+-- @param start_ln (number) The starting line number of the selection.
+-- @param end_ln (number) The ending line number of the selection.
+local function _process_visual_selection(start_ln, end_ln)
+  local function get_node_state(node)
+    if not node then
+      return "INVALID"
+    end
+    if not node.is_task then
+      return "LIST_ITEM"
+    end
+    return node.is_done and "COMPLETE" or "NOT_COMPLETE"
+  end
+
+  -- 1. Validation Pass: Ensure all items in selection have a consistent state.
+  local first_node_state = nil
+  for i = start_ln, end_ln do
+    local node = toggle_op.cache.nodes[i]
+    local current_state = get_node_state(node)
+    if current_state == "INVALID" then
+      vim.notify("Neowiki: Selection contains non-list items. Aborting.", vim.log.levels.WARN)
+      return
+    end
+    if not first_node_state then
+      first_node_state = current_state
+    elseif first_node_state ~= current_state then
+      vim.notify(
+        "Neowiki: Selection contains items with mixed states. Aborting.",
+        vim.log.levels.WARN
+      )
+      return
+    end
+  end
+
+  -- 2. Action Pass: Process each line in the validated selection.
+  for i = start_ln, end_ln do
+    _process_lnum(i, true)
   end
 end
 
@@ -293,164 +478,30 @@ gtd.toggle_task = function(opts)
   -- conditions with the debounced on_lines handler.
   _build_gtd_tree(bufnr)
 
-  local cache = gtd_cache[bufnr]
-  if not cache then
-    return
-  end -- Guard if buffer has no list items at all
-
-  -- The bootstrap logic for first-time task creation is now implicitly handled
-  -- by the main logic, as the cache is guaranteed to exist and be up-to-date.
-  if opts.visual and vim.tbl_isempty(cache.nodes) then
-    return -- Don't operate on an empty buffer in visual mode.
+  toggle_op.cache = gtd_cache[bufnr]
+  if not toggle_op.cache then
+    return -- Guard if buffer has no list items at all
   end
 
-  local lines_to_change = {}
-
-  local function get_future_line(lnum)
-    return lines_to_change[lnum] or (cache.nodes[lnum] and cache.nodes[lnum].line_content)
-  end
-
-  local function get_line_for_state(node, is_done)
-    local line = get_future_line(node.lnum)
-    if not line or not node.is_task then
-      return line
-    end
-    return line:gsub(is_done and "%[ %]" or "%[x%]", is_done and "[x]" or "[ ]", 1)
-  end
-
-  local function should_new_task_be_done(node)
-    if #node.children == 0 then
-      return false
-    end
-    local has_task_children = false
-    for _, child in ipairs(node.children) do
-      if child.is_task then
-        has_task_children = true
-        local child_line = get_future_line(child.lnum)
-        if child_line and child_line:find("%[ %]") then
-          return false
-        end
-      end
-    end
-    return has_task_children
-  end
-
-  local function cascade_down(node, new_state_is_done)
-    for _, child in ipairs(node.children) do
-      if child.is_task then
-        lines_to_change[child.lnum] = get_line_for_state(child, new_state_is_done)
-        cascade_down(child, new_state_is_done)
-      end
-    end
-  end
-
-  local function _get_non_task_ancestors(start_node)
-    local ancestors = {}
-    local current_node = start_node
-    while current_node.parent and not current_node.parent.is_task do
-      table.insert(ancestors, current_node.parent)
-      current_node = current_node.parent
-    end
-    return ancestors
-  end
-
-  local function _toggle_existing_task(node)
-    local new_state_is_done = not node.is_done
-    lines_to_change[node.lnum] = get_line_for_state(node, new_state_is_done)
-    cascade_down(node, new_state_is_done)
-  end
-
-  local function _create_task_from_list_item(node, is_batch_operation)
-    local nodes_to_create = { node }
-
-    -- Only check for ancestors and show the pop-up for single-item, non-batch operations.
-    if not is_batch_operation then
-      local non_task_ancestors = _get_non_task_ancestors(node)
-      if #non_task_ancestors > 0 then
-        local prompt =
-          string.format("Convert %d parent item(s) to tasks as well?", #non_task_ancestors)
-        local choice = vim.fn.confirm(prompt, "&Yes\n&No", 2, "Question")
-        if choice == 1 then
-          for _, ancestor in ipairs(non_task_ancestors) do
-            table.insert(nodes_to_create, ancestor)
-          end
-        end
-      end
-    end
-
-    -- Process each node marked for creation. The list is naturally in a
-    -- bottom-up order ([child, parent, grandparent]), which is required
-    -- for `should_new_task_be_done` to work correctly at each level.
-    for _, node_to_create in ipairs(nodes_to_create) do
-      local new_state_is_done = should_new_task_be_done(node_to_create)
-      local current_line = get_future_line(node_to_create.lnum)
-      local prefix = current_line:sub(1, node_to_create.content_col - 1)
-      local suffix = current_line:sub(node_to_create.content_col)
-      local marker = new_state_is_done and "[x] " or "[ ] "
-      lines_to_change[node_to_create.lnum] = prefix .. marker .. suffix
-    end
-  end
-
-  local function process_lnum(lnum, is_batch)
-    local node = cache.nodes[lnum]
-    if not node then
-      return
-    end
-
-    if not node.is_task then
-      _create_task_from_list_item(node, is_batch)
-    else
-      _toggle_existing_task(node)
-    end
-  end
+  -- Reset the pending changes for this operation.
+  toggle_op.lines_to_change = {}
 
   if opts.visual then
     local start_ln, end_ln = vim.fn.line("'<"), vim.fn.line("'>")
-    -- 1. Validation Pass
-    local first_node_state = nil
-    local function get_node_state(node)
-      if not node then
-        return "INVALID"
-      end
-      if not node.is_task then
-        return "LIST_ITEM"
-      end
-      if node.is_done then
-        return "COMPLETE"
-      end
-      return "NOT_COMPLETE"
-    end
-    for i = start_ln, end_ln do
-      local node = cache.nodes[i]
-      local current_state = get_node_state(node)
-      if current_state == "INVALID" then
-        vim.notify("Neowiki: Selection contains non-list items. Aborting.", vim.log.levels.WARN)
-        return
-      end
-      if not first_node_state then
-        first_node_state = current_state
-      elseif first_node_state ~= current_state then
-        vim.notify(
-          "Neowiki: Selection contains items with mixed states. Aborting.",
-          vim.log.levels.WARN
-        )
-        return
-      end
-    end
-    -- 2. Action Pass
-    for i = start_ln, end_ln do
-      process_lnum(i, true)
-    end
+    _process_visual_selection(start_ln, end_ln)
   else
-    process_lnum(vim.api.nvim_win_get_cursor(0)[1], false)
+    local lnum = vim.api.nvim_win_get_cursor(0)[1]
+    _process_lnum(lnum, false)
   end
 
-  if not vim.tbl_isempty(lines_to_change) then
+  -- Apply accumulated changes to the buffer if any were made.
+  if not vim.tbl_isempty(toggle_op.lines_to_change) then
     local original_cursor = vim.api.nvim_win_get_cursor(0)
-    for lnum, line in pairs(lines_to_change) do
+    for lnum, line in pairs(toggle_op.lines_to_change) do
       vim.api.nvim_buf_set_lines(bufnr, lnum - 1, lnum, false, { line })
     end
     vim.api.nvim_win_set_cursor(0, original_cursor)
+    -- After making changes, run the full pipeline to validate and update UI.
     run_update_pipeline(bufnr)
   end
 end
