@@ -360,17 +360,20 @@ gtd.toggle_task = function(opts)
     cascade_down(node, new_state_is_done)
   end
 
-  local function _create_task_from_list_item(node)
+  local function _create_task_from_list_item(node, is_batch_operation)
     local nodes_to_create = { node }
-    local non_task_ancestors = _get_non_task_ancestors(node)
 
-    if #non_task_ancestors > 0 then
-      local prompt =
-        string.format("Convert %d parent item(s) to tasks as well?", #non_task_ancestors)
-      local choice = vim.fn.confirm(prompt, "&Yes\n&No", 2, "Question")
-      if choice == 1 then
-        for _, ancestor in ipairs(non_task_ancestors) do
-          table.insert(nodes_to_create, ancestor)
+    -- Only check for ancestors and show the pop-up for single-item, non-batch operations.
+    if not is_batch_operation then
+      local non_task_ancestors = _get_non_task_ancestors(node)
+      if #non_task_ancestors > 0 then
+        local prompt =
+          string.format("Convert %d parent item(s) to tasks as well?", #non_task_ancestors)
+        local choice = vim.fn.confirm(prompt, "&Yes\n&No", 2, "Question")
+        if choice == 1 then
+          for _, ancestor in ipairs(non_task_ancestors) do
+            table.insert(nodes_to_create, ancestor)
+          end
         end
       end
     end
@@ -388,14 +391,14 @@ gtd.toggle_task = function(opts)
     end
   end
 
-  local function process_lnum(lnum)
+  local function process_lnum(lnum, is_batch)
     local node = cache.nodes[lnum]
     if not node then
       return
     end
 
     if not node.is_task then
-      _create_task_from_list_item(node)
+      _create_task_from_list_item(node, is_batch)
     else
       _toggle_existing_task(node)
     end
@@ -436,10 +439,10 @@ gtd.toggle_task = function(opts)
     end
     -- 2. Action Pass
     for i = start_ln, end_ln do
-      process_lnum(i)
+      process_lnum(i, true)
     end
   else
-    process_lnum(vim.api.nvim_win_get_cursor(0)[1])
+    process_lnum(vim.api.nvim_win_get_cursor(0)[1], false)
   end
 
   if not vim.tbl_isempty(lines_to_change) then
