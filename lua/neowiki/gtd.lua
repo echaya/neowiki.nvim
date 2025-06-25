@@ -15,7 +15,6 @@ local gtd_cache = {}
 --   `content_col`), or nil if the line is not a list item.
 --
 local function _parse_line(line)
-  -- First, try to match the line as a full task item (e.g., `* [ ] ...`).
   -- Handles unordered lists like `* `, `- `, `+ `
   local task_prefix = line:match("^(%s*[%*%-+]%s*%[.%]%s+)")
   if not task_prefix then
@@ -175,16 +174,6 @@ _calculate_progress_from_node = function(node)
 end
 
 ---
--- Checks if all of a node's direct task-children are in a 'done' state.
--- Acts as a simple wrapper around `_get_child_task_stats`.
--- @param node (table) The parent node to check.
--- @return (boolean) True if all task children are complete, otherwise false.
---
-local function _are_all_task_children_done(node)
-  return _get_child_task_stats(node).all_done
-end
-
----
 -- Validates the entire tree, ensuring parent task states match their children.
 -- This function is the core of the auto-correction logic.
 -- @param bufnr (number) The buffer to validate.
@@ -206,7 +195,8 @@ local function _apply_tree_validation(bufnr)
       local should_be_done
       if #node.children > 0 then
         -- Rule 1: This is a parent task. Its state is dictated by its children.
-        should_be_done = _are_all_task_children_done(node)
+        -- Checks if all of a node's direct task-children are in a 'done' state.
+        should_be_done = _get_child_task_stats(node).all_done
       else
         -- Rule 2: This is a childless task. Its state is its own.
         should_be_done = node.is_done
@@ -511,29 +501,36 @@ end
 -- @param bufnr (number) The buffer number to attach to.
 --
 gtd.attach_to_buffer = function(bufnr)
-  -- Run the pipeline once when the buffer is first entered.
+  -- Run the pipeline once when the buffer is first entered to establish state.
   run_update_pipeline(bufnr)
 
-  -- Attach to the buffer to run the pipeline on any subsequent changes.
-  local attached, err = pcall(vim.api.nvim_buf_attach, bufnr, false, {
-    on_lines = function(_, buffer, _, _, _, _)
+  -- Create a buffer-local autocommand group to ensure events are cleaned up
+  -- automatically when the buffer is closed or reloaded.
+  local group = vim.api.nvim_create_augroup("neowiki_gtd_listener_" .. bufnr, { clear = true })
+
+  -- Listen for text changes in both Insert and Normal mode.
+  vim.api.nvim_create_autocmd({ "TextChanged", "TextChangedI" }, {
+    group = group,
+    buffer = bufnr,
+    callback = function()
       vim.defer_fn(function()
-        if vim.api.nvim_buf_is_valid(buffer) then
-          run_update_pipeline(buffer)
+        if vim.api.nvim_buf_is_valid(bufnr) then
+          run_update_pipeline(bufnr)
         end
-      end, 200) -- Debounce to avoid excessive updates during rapid typing.
+      end, 200) -- Debounce delay in milliseconds.
     end,
-    on_detach = function(_, b)
-      gtd_cache[b] = nil -- Clean up cache when the buffer is no longer active.
-    end,
+    desc = "Debounced GTD update on text change",
   })
 
-  if not attached then
-    vim.notify(
-      "neowiki: Failed to attach GTD handler to buffer. " .. tostring(err),
-      vim.log.levels.WARN
-    )
-  end
+  -- Listen for when the buffer is detached (e.g., closed) to clean up the cache.
+  -- This prevents memory leaks.
+  vim.api.nvim_create_autocmd({ "BufUnload" }, {
+    group = group,
+    buffer = bufnr,
+    callback = function()
+      gtd_cache[bufnr] = nil
+    end,
+    desc = "Clean up GTD cache on buffer detach",
+  })
 end
-
 return gtd
