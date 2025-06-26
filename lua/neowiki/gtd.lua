@@ -155,7 +155,7 @@ end
 -- Recursively calculates the completion percentage for a given node.
 -- Acts as a wrapper around the more generic `_get_child_task_stats`.
 -- @param node (table) The node to calculate progress for.
--- @return (number, boolean) Progress (0.0-1.0) and whether the node has children.
+-- @return (number, boolean) Progress (0.0-1.0) and whether it has task children.
 --
 _calculate_progress_from_node = function(node)
   if #node.children == 0 then
@@ -166,10 +166,11 @@ _calculate_progress_from_node = function(node)
   local stats = _get_child_task_stats(node)
 
   if stats.task_count == 0 then
-    -- Parent with no task children: Progress is determined by its own status.
-    return (node.is_task and node.is_done) and 1.0 or 0.0, true
+    -- Parent without task child: Progress determined by its own status.
+    return (node.is_task and node.is_done) and 1.0 or 0.0, false
   end
 
+  -- Parent with task children: Progress is the average of its children's progress.
   return stats.progress_total / stats.task_count, true
 end
 
@@ -263,9 +264,8 @@ gtd.update_progress = function(bufnr)
 
   for _, node in pairs(cache.nodes) do
     if node.is_task then
-      local progress, has_children = _calculate_progress_from_node(node)
-      -- Only show progress for parent tasks that are not yet 100% complete.
-      if has_children and progress < 1.0 then
+      local progress, has_task_children = _calculate_progress_from_node(node)
+      if has_task_children and progress < 1.0 then
         local display_text = string.format(" [ %.0f%% ]", progress * 100)
         vim.api.nvim_buf_set_extmark(bufnr, progress_ns, node.lnum - 1, -1, {
           virt_text = { { display_text, config.gtd.gtd_progress_hl_group or "Comment" } },
