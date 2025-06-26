@@ -24,8 +24,27 @@ local create_buffer_keymaps = function(buffer_number)
   util.make_repeatable("n", "<Plug>(neowikiToggleTask)", function()
     require("neowiki.gtd").toggle_task()
   end)
+  ---
+  -- Jumps the cursor to the next or previous link in the buffer without wrapping.
+  -- Displays a notification if no more links are found in the given direction.
+  -- @param direction (string): The direction to search ('next' or 'prev').
+  --
+  local function jump_to_link(direction)
+    -- This pattern finds [text](target) or [[target]] style links.
+    local link_pattern = [[\(\[.\{-}\](.\{-})\)\|\(\[\[.\{-}\]\]\)]]
+    local flags = direction == "next" and "W" or "bW"
 
-  local link_pattern = [[\(\[.\{-}\](.\{-})\)\|\(\[\[.\{-}\]\]\)]]
+    if vim.fn.search(link_pattern, flags) == 0 then
+      vim.notify(
+        "No more links found in this direction",
+        vim.log.levels.INFO,
+        { title = "neowiki" }
+      )
+    else
+      -- Clear search highlighting after a successful jump.
+      vim.cmd("noh")
+    end
+  end
 
   -- Defines the behavior of logical actions across different modes.
   local logical_actions = {
@@ -69,17 +88,17 @@ local create_buffer_keymaps = function(buffer_number)
     },
     next_link = {
       n = {
-        rhs = (function()
-          return string.format(":let @/=%s<CR>nl:noh<CR>", vim.fn.string(link_pattern))
-        end)(),
+        rhs = function()
+          jump_to_link("next")
+        end,
         desc = "Jump to Next Link",
       },
     },
     prev_link = {
       n = {
-        rhs = (function()
-          return string.format(":let @/=%s<CR>NNl:noh<CR>", vim.fn.string(link_pattern))
-        end)(),
+        rhs = function()
+          jump_to_link("prev")
+        end,
         desc = "Jump to Prev Link",
       },
     },
