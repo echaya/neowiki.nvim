@@ -329,7 +329,13 @@ M.follow_link = function(open_cmd)
   local line = vim.fn.getline(cursor[1])
   local filename = util.process_link(cursor, line)
 
-  if filename and filename:len() > 1 then
+  if filename and filename:len() > 0 then
+    -- try open_external if the filename is a url
+    if filename:match("^%a+://") or filename:match("^www%.") then
+      util.open_external(filename)
+      return
+    end
+
     if filename:sub(1, 2) == "./" then
       filename = filename:sub(2, -1)
     end

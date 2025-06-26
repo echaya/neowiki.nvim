@@ -281,4 +281,39 @@ util.make_repeatable = function(mode, lhs, rhs)
   return lhs
 end
 
+---
+-- Opens a given URL in the default external application (e.g., a web browser).
+-- This function is cross-platform and supports macOS, Linux, and Windows.
+-- @param url (string): The URL to open.
+--
+util.open_external = function(url)
+  if not url or url == "" then
+    return
+  end
+
+  local os_name = vim.loop.os_uname().sysname
+  local command
+
+  if os_name == "Darwin" then
+    -- Use `shellescape` without the second argument for POSIX shells.
+    command = "open " .. vim.fn.shellescape(url)
+  elseif os_name == "Linux" then
+    command = "xdg-open " .. vim.fn.shellescape(url)
+  elseif os_name:find("Windows") then
+    -- Use `shellescape` with `true` for Windows' cmd.exe.
+    command = "start " .. vim.fn.shellescape(url, true)
+  end
+
+  if command then
+    vim.cmd("!" .. command)
+    vim.notify("Opening in external app: " .. url, vim.log.levels.INFO, { title = "neowiki" })
+  else
+    vim.notify(
+      "Unsupported OS for opening external links: " .. os_name,
+      vim.log.levels.WARN,
+      { title = "neowiki" }
+    )
+  end
+end
+
 return util
