@@ -234,7 +234,8 @@ local function run_update_pipeline(bufnr)
   local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
   local content = table.concat(lines, "\n")
   if not (content:find("%[ ]") or content:find("%[x]")) then
-    -- If no tasks are present, just clear any existing progress markers.
+    -- If no tasks are present, clean the cache and progress
+    gtd_cache[bufnr] = nil
     gtd.update_progress(bufnr)
     return
   end
