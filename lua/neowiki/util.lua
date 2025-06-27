@@ -2,6 +2,9 @@ local state = require("neowiki.state")
 
 local util = {}
 
+-- Variable to ensure the fallback notification is only shown once per session.
+local native_fallback_notified = false
+
 ---
 -- Recursively merges two tables. Values in `override` take precedence.
 -- @param base (table): The table to merge into.
@@ -18,6 +21,195 @@ util.deep_merge = function(base, override)
     end
   end
   return result
+end
+
+---
+-- Filters a table by applying a predicate function to each item.
+-- This is a pure function that does not depend on any external state or modules.
+-- @param list (table): The list to filter.
+-- @param predicate (function): A function that takes an item and returns `true` to keep it or `false` to discard it.
+-- @return (table): A new table containing only the items for which the predicate returned true.
+--
+util.filter_list = function(list, predicate)
+  local result = {}
+  for _, item in ipairs(list) do
+    if predicate(item) then
+      table.insert(result, item)
+    end
+  end
+  return result
+end
+
+---
+-- Generic file finder that uses fast command-line tools if available.
+-- It prioritizes rg > fd > git, falling back to a native vim glob.
+-- All returned paths are made absolute.
+-- @param search_path (string) The absolute path of the directory to search.
+-- @param search_term (string) The filename or extension to find.
+-- @param search_type (string) 'name' to find by exact filename, or 'ext' for extension.
+-- @return (table) A list of absolute paths to the found files.
+--
+local _find_files = function(search_path, search_term, search_type)
+  local command
+  local files
+  local glob_pattern
+
+  if vim.fn.executable("rg") == 1 then
+    if search_type == "ext" then
+      glob_pattern = "*" .. search_term
+    else -- 'name'
+      glob_pattern = search_term
+    end
+    command = { "rg", "--files", "--no-follow", "--crlf", "--iglob", glob_pattern, search_path }
+    files = vim.fn.systemlist(command)
+    if vim.v.shell_error == 0 then
+      -- rg can return relative paths; ensure they are absolute.
+      local absolute_files = {}
+      for _, file in ipairs(files) do
+        table.insert(absolute_files, vim.fn.fnamemodify(file, ":p"))
+      end
+      -- vim.notify("rg is used")
+      return absolute_files
+    end
+  end
+
+  if vim.fn.executable("fd") == 1 then
+    if search_type == "ext" then
+      -- fd expects the extension without the dot.
+      command = { "fd", "--type=f", "--no-follow", "-e", search_term:sub(2), ".", search_path }
+    else -- 'name'
+      command = { "fd", "--type=f", "--no-follow", "--glob", search_term, ".", search_path }
+    end
+    files = vim.fn.systemlist(command)
+    if vim.v.shell_error == 0 then
+      -- fd with a base directory returns absolute paths.
+      -- vim.notify("fd is used")
+      return files
+    end
+  end
+
+  if vim.fn.executable("git") == 1 and vim.fn.isdirectory(vim.fs.joinpath(search_path, ".git")) then
+    command = { "git", "-C", search_path, "ls-files", "--cached", "--others", "--exclude-standard" }
+    local all_files = vim.fn.systemlist(command)
+    if vim.v.shell_error == 0 then
+      local results = {}
+      for _, file in ipairs(all_files) do
+        local should_add = false
+        if search_type == "ext" then
+          if file:match(vim.pesc(search_term) .. "$") then
+            should_add = true
+          end
+        else -- 'name'
+          if vim.fn.fnamemodify(file, ":t") == search_term then
+            should_add = true
+          end
+        end
+
+        if should_add then
+          -- git ls-files returns paths relative to `search_path`, so join them to make them absolute.
+          table.insert(results, vim.fs.joinpath(search_path, file))
+        end
+      end
+      -- vim.notify("git is used")
+      return results
+    end
+  end
+
+  -- 4. Fallback to native globpath if all CLI tools failed.
+  if not native_fallback_notified then
+    vim.notify(
+      "rg, fd, and git not available or failed. Falling back to slower native search.",
+      vim.log.levels.INFO,
+      { title = "neowiki" }
+    )
+    native_fallback_notified = true
+  end
+
+  if search_type == "ext" then
+    glob_pattern = "**/*" .. search_term
+  else -- 'name'
+    glob_pattern = "**/" .. search_term
+  end
+  -- globpath returns absolute paths when the base path is absolute.
+  return vim.fn.globpath(search_path, glob_pattern, false, true)
+end
+
+---
+-- Finds all wiki pages within a directory by calling the generic file finder.
+-- @param search_path (string) The absolute path of the directory to search.
+-- @param extension (string) The file extension to look for (e.g., ".md").
+-- @return (table) A list of absolute paths to the found wiki pages.
+--
+util.find_wiki_pages = function(search_path, extension)
+  -- Delegate to the main file-finding function with 'ext' type.
+  return _find_files(search_path, extension, "ext")
+end
+
+---
+-- Calculates the relative path from a starting directory to a target file path.
+-- @param from_dir (string) The absolute path of the source directory.
+-- @param to_path (string) The absolute path of the target file.
+-- @return (string) The calculated relative path using forward slashes.
+--
+util.get_relative_path = function(from_dir, to_path)
+  -- Step 1: Normalize paths to be absolute and use forward slashes.
+  local from_abs = vim.fn.fnamemodify(from_dir, ":p"):gsub("\\", "/")
+  local to_abs = vim.fn.fnamemodify(to_path, ":p"):gsub("\\", "/")
+
+  -- Remove trailing slashes to ensure consistent splitting.
+  from_abs = from_abs:gsub("/$", "")
+  to_abs = to_abs:gsub("/$", "")
+
+  local from_parts = vim.split(from_abs, "/")
+  local to_parts = vim.split(to_abs, "/")
+
+  -- On Windows, if the drives are different, a relative path is impossible.
+  if vim.fn.has("win32") == 1 and from_parts[1]:lower() ~= to_parts[1]:lower() then
+    return to_abs -- Return the absolute path as a fallback.
+  end
+
+  -- Step 2: Find the last common directory in the paths.
+  local common_base_idx = 0
+  -- We compare directories, so the loop limit is the shorter of the two directory paths.
+  local min_len = math.min(#from_parts, #to_parts - 1)
+  for i = 1, min_len do
+    -- Perform case-insensitive comparison on Windows.
+    local part_from = vim.fn.has("win32") == 1 and from_parts[i]:lower() or from_parts[i]
+    local part_to = vim.fn.has("win32") == 1 and to_parts[i]:lower() or to_parts[i]
+
+    if part_from ~= part_to then
+      break
+    end
+    common_base_idx = i
+  end
+
+  local rel_parts = {}
+
+  -- Step 3: For each remaining directory in `from_parts`, add a '..'
+  local up_levels = #from_parts - common_base_idx
+  for _ = 1, up_levels do
+    table.insert(rel_parts, "..")
+  end
+
+  -- Step 4: Add the remaining parts of the `to_path`.
+  for i = common_base_idx + 1, #to_parts do
+    table.insert(rel_parts, to_parts[i])
+  end
+
+  -- If the resulting path is empty, it means the target is in the same directory.
+  -- In this case, the relative path is just the filename.
+  if #rel_parts == 0 then
+    table.insert(rel_parts, to_parts[#to_parts])
+  end
+
+  local final_path = table.concat(rel_parts, "/")
+
+  -- Prepend "./" to make it an explicit relative link for markdown consistency.
+  if not final_path:match("^%./") and not final_path:match("^%.%./") then
+    final_path = "./" .. final_path
+  end
+
+  return final_path
 end
 
 ---
@@ -233,8 +425,7 @@ util.find_nested_roots = function(search_path, index_filename)
     return roots
   end
 
-  local search_pattern = vim.fs.joinpath("**", index_filename)
-  local index_files = vim.fn.globpath(search_path, search_pattern, false, true)
+  local index_files = _find_files(search_path, index_filename, "name")
 
   for _, file_path in ipairs(index_files) do
     local root_path = vim.fn.fnamemodify(file_path, ":p:h")

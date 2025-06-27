@@ -41,6 +41,8 @@ local config = {
     delete_page = "<leader>wd",
     -- Removes all links in the current file that point to non-existent pages.
     cleanup_links = "<leader>wc",
+    -- Opens a selector to find and insert a link to another wiki page.
+    insert_link = "<leader>wi",
 
     -- Keymap to close the floating wiki.
     close_float = "q",
@@ -72,3 +74,4 @@ local config = {
 }
 
 return config
+

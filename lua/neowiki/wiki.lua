@@ -1,5 +1,4 @@
 local config = require("neowiki.config")
-local gtd = require("neowiki.gtd")
 local util = require("neowiki.util")
 local state = require("neowiki.state")
 local M = {}
@@ -111,6 +110,9 @@ local create_buffer_keymaps = function(buffer_number)
     cleanup_links = {
       n = { rhs = require("neowiki.wiki").cleanup_broken_links, desc = "Clean Broken Links" },
     },
+    insert_link = {
+      n = { rhs = require("neowiki.wiki").insert_wiki_link, desc = "Insert link to a page" },
+    },
   }
 
   -- If we are in a floating window, override split actions to show a notification.
@@ -160,9 +162,9 @@ end
 ---
 -- Finds the most specific wiki root that contains the given buffer path.
 -- @param buf_path (string) The absolute path of the buffer to check.
--- @return (string|nil, string|nil) Returns two paths: the primary 'wiki_root' for navigation
---   (e.g., jumping to index) and the 'active_wiki_path' which is the most specific root
---   containing the buffer, used for creating new files.
+-- @return (string|nil, string|nil, string|nil) Returns three paths: the primary 'wiki_root' for navigation
+--   (e.g., jumping to index), the 'active_wiki_path' which is the most specific root
+--   containing the buffer, and the 'ultimate_wiki_root' which is the top-most parent wiki.
 --
 local function find_wiki_for_buffer(buf_path)
   local current_file_path = vim.fn.fnamemodify(buf_path, ":p")
@@ -183,13 +185,15 @@ local function find_wiki_for_buffer(buf_path)
   end
 
   if #matching_wikis == 0 then
-    return nil, nil -- No matching wiki found
+    return nil, nil, nil -- No matching wiki found
   end
 
-  -- The list is pre-sorted by path length, so the first match is the most specific.
+  -- The list is pre-sorted by path length (desc), so the first match is the most specific.
   local most_specific_match = matching_wikis[1]
   local wiki_root
   local active_wiki_path = most_specific_match.resolved
+  -- The last match is the shortest path, making it the ultimate parent root.
+  local ultimate_wiki_root = matching_wikis[#matching_wikis].resolved
 
   -- If we are in an index file of a nested wiki, the effective root for jumping
   -- to index should be the parent wiki's root.
@@ -200,7 +204,7 @@ local function find_wiki_for_buffer(buf_path)
     wiki_root = most_specific_match.resolved
   end
 
-  return wiki_root, active_wiki_path
+  return wiki_root, active_wiki_path, ultimate_wiki_root
 end
 
 ---
@@ -218,10 +222,11 @@ M.setup_buffer = function()
     return
   end
 
-  local wiki_root, active_wiki_path = find_wiki_for_buffer(buf_path)
-  if wiki_root and active_wiki_path then
+  local wiki_root, active_wiki_path, ultimate_wiki_root = find_wiki_for_buffer(buf_path)
+  if wiki_root and active_wiki_path and ultimate_wiki_root then
     vim.b[0].wiki_root = wiki_root
     vim.b[0].active_wiki_path = active_wiki_path
+    vim.b[0].ultimate_wiki_root = ultimate_wiki_root
     create_buffer_keymaps(0)
   end
 end
@@ -618,4 +623,88 @@ M.cleanup_broken_links = function()
   end
 end
 
+---
+-- Finds a wiki page within the current wiki and inserts a relative link to it.
+-- It uses vim.ui.select to prompt the user with a list of all available pages.
+--
+M.insert_wiki_link = function()
+  local search_root = vim.b[0].ultimate_wiki_root
+  if not search_root or search_root == "" then
+    vim.notify(
+      "Not inside a neowiki wiki. Cannot insert link.",
+      vim.log.levels.WARN,
+      { title = "neowiki" }
+    )
+    return
+  end
+
+  -- Find all pages using the utility function, starting from the search_root.
+  local pages = util.find_wiki_pages(search_root, state.markdown_extension)
+  if not pages or vim.tbl_isempty(pages) then
+    vim.notify(
+      "No wiki pages found in: " .. search_root,
+      vim.log.levels.INFO,
+      { title = "neowiki" }
+    )
+    return
+  end
+
+  -- remove the file itself and index files
+  local current_file_path_normalized =
+    util.normalize_path_for_comparison(vim.api.nvim_buf_get_name(0))
+  local index_filename = vim.fn.fnamemodify(config.index_file, ":t")
+
+  -- Use the pure utility function, providing our specific filtering logic as a predicate.
+  local filtered_pages = util.filter_list(pages, function(path)
+    -- The predicate function handles all the application-specific logic.
+    local page_filename = vim.fn.fnamemodify(path, ":t")
+    if page_filename == index_filename then
+      return false -- Exclude index files.
+    end
+
+    local normalized_path = util.normalize_path_for_comparison(path)
+    if normalized_path == current_file_path_normalized then
+      return false -- Exclude the current file.
+    end
+
+    return true -- Keep the item.
+  end)
+
+  if vim.tbl_isempty(filtered_pages) then
+    vim.notify("No other linkable pages found.", vim.log.levels.INFO, { title = "neowiki" })
+    return
+  end
+
+  -- Format pages for vim.ui.select, showing a path relative to the wiki root.
+  local items = {}
+  for _, path in ipairs(filtered_pages) do
+    table.insert(items, {
+      display = vim.fn.fnamemodify(path, ":." .. search_root), -- Path relative to root
+      path = path, -- Full absolute path
+    })
+  end
+
+  vim.ui.select(items, {
+    prompt = "Select a page to link:",
+    format_item = function(item)
+      return " " .. item.display
+    end,
+  }, function(choice)
+    if not choice then
+      return -- User cancelled
+    end
+
+    local current_dir = vim.fn.fnamemodify(vim.api.nvim_buf_get_name(0), ":p:h")
+    local relative_path = util.get_relative_path(current_dir, choice.path)
+    local link_name = vim.fn.fnamemodify(choice.path, ":t:r") -- Filename without extension
+    local link_text = string.format("[%s](%s)", link_name, relative_path)
+
+    -- Get the current cursor line to insert the new link below it.
+    local cursor_line = vim.api.nvim_win_get_cursor(0)[1]
+
+    vim.api.nvim_buf_set_lines(0, cursor_line, cursor_line, false, { link_text })
+  end)
+end
+
 return M
+
