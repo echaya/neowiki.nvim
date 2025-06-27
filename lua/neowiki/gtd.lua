@@ -144,10 +144,7 @@ local function _get_child_task_stats(node)
       end
     end
   end
-  -- A parent with no task children cannot be considered "all done" by its children.
-  if stats.task_count == 0 then
-    stats.all_done = false
-  end
+
   return stats
 end
 
@@ -194,12 +191,14 @@ local function _apply_tree_validation(bufnr)
     local node = cache.nodes[lnum]
     if node and node.is_task then
       local should_be_done
-      if #node.children > 0 then
-        -- Rule 1: This is a parent task. Its state is dictated by its children.
-        -- Checks if all of a node's direct task-children are in a 'done' state.
-        should_be_done = _get_child_task_stats(node).all_done
+      local child_stats = _get_child_task_stats(node)
+      -- A parent's state is only dictated by its children if it has actual task children.
+      if child_stats.task_count > 0 then
+        -- Rule 1: Parent with task children. Its state is derived from them.
+        should_be_done = child_stats.all_done
       else
-        -- Rule 2: This is a childless task. Its state is its own.
+        -- Rule 2: A childless task, OR a task with only non-task children.
+        -- In this case, its state is its own and should not be auto-corrected.
         should_be_done = node.is_done
       end
 
