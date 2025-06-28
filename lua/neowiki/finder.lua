@@ -248,4 +248,60 @@ finder.find_broken_links_in_buffer = function()
 
   return broken_links_info
 end
+
+---
+-- Uses Ripgrep (rg) to find all backlinks to a specific file.
+-- It searches for markdown links `[text](target)` and wikilinks `[[target]]`.
+-- @param search_path (string) The absolute path of the directory to search within.
+-- @param target_filename (string) The filename to search for in links.
+-- @return (table|nil) A list of match objects, or nil if rg is not available or finds nothing.
+--   Each object contains: { file = absolute_path, lnum = line_number, line = text_of_line }
+finder.find_backlinks = function(search_path, target_filename)
+  if vim.fn.executable("rg") ~= 1 then
+    return nil -- Ripgrep is required for this enhanced search.
+  end
+
+  local fname_no_ext = vim.fn.fnamemodify(target_filename, ":t:r")
+  local fname_pattern = fname_no_ext:gsub("([%(%)%.%+%[%]])", "\\%1")
+
+  local wikilink_part_prefix = [=[\[\[[^\]]*]=]
+  local wikilink_part_suffix = [=[[^\]]*\]\]]=]
+  local wikilink_part = wikilink_part_prefix .. fname_pattern .. wikilink_part_suffix
+
+  local mdlink_part_prefix = [=[\[[^\]]+\]\([^)]*]=]
+  local mdlink_part_suffix = [=[[^)]*\)]]=]
+  local mdlink_part = mdlink_part_prefix .. fname_pattern .. mdlink_part_suffix
+
+  local pattern = wikilink_part .. "|" .. mdlink_part
+  local command = {
+    "rg",
+    "--vimgrep",
+    "--type",
+    "markdown",
+    "-e",
+    pattern,
+    search_path,
+  }
+
+  local results = vim.fn.systemlist(command)
+  if vim.v.shell_error ~= 0 or not results or vim.tbl_isempty(results) then
+    return nil -- rg command failed or returned no results.
+  end
+
+  local matches = {}
+  for _, line in ipairs(results) do
+    local file_path, lnum_str, _, line_content = line:match("^(.-):(%d+):(%d+):(.*)$")
+
+    if file_path and lnum_str and line_content then
+      table.insert(matches, {
+        file = file_path,
+        lnum = tonumber(lnum_str),
+        line = line_content,
+      })
+    end
+  end
+
+  return #matches > 0 and matches or nil
+end
+
 return finder
