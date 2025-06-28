@@ -208,58 +208,21 @@ end
 
 ---
 -- Scans the current buffer and removes any lines that contain broken markdown links
--- (i.e., links pointing to non-existent files).
+-- (i.e., links pointing to non-existent files), after user confirmation.
 --
 wiki.cleanup_broken_links = function()
-  local choice = vim.fn.confirm("Clean up all broken links from this page?", "&Yes\n&No")
-  if choice ~= 1 then
-    vim.notify("Link cleanup skipped.", vim.log.levels.INFO, { title = "neowiki" })
+  local broken_links_info = wiki_action.find_broken_links_in_buffer()
+
+  if #broken_links_info == 0 then
+    vim.notify("No broken links were found.", vim.log.levels.INFO, { title = "neowiki" })
     return
   end
 
-  local current_buf_path = vim.api.nvim_buf_get_name(0)
-  local current_dir = vim.fn.fnamemodify(current_buf_path, ":p:h")
-  local all_lines = vim.api.nvim_buf_get_lines(0, 0, -1, false)
-
-  local lines_to_keep = {}
-  local deleted_lines_info = {}
-
-  for i, line in ipairs(all_lines) do
-    local has_broken_link = false
-    local link_targets = wiki_action.find_all_link_targets(line)
-
-    for _, target in ipairs(link_targets) do
-      local full_target_path = vim.fn.fnamemodify(vim.fs.joinpath(current_dir, target), ":p")
-      -- A link is broken if the target file isn't readable.
-      if vim.fn.filereadable(full_target_path) == 0 then
-        has_broken_link = true
-        break
-      end
-    end
-
-    if has_broken_link then
-      table.insert(deleted_lines_info, "Line " .. i .. ": " .. line)
-    else
-      table.insert(lines_to_keep, line)
-    end
-  end
-
-  if #deleted_lines_info > 0 then
-    vim.api.nvim_buf_set_lines(0, 0, -1, false, lines_to_keep)
-    local message = "Link cleanup complete.\nRemoved "
-      .. #deleted_lines_info
-      .. " line(s) with broken links:\n"
-      .. table.concat(deleted_lines_info, "\n")
-    vim.notify(message, vim.log.levels.INFO, {
-      title = "neowiki",
-      on_open = function(win)
-        local width = vim.api.nvim_win_get_width(win)
-        local height = #deleted_lines_info + 3
-        vim.api.nvim_win_set_config(win, { height = height, width = math.min(width, 100) })
-      end,
-    })
+  local choice = vim.fn.confirm("Clean up all broken links from this page?", "&Yes\n&No")
+  if choice == 1 then
+    wiki_action.remove_lines_with_broken_links(broken_links_info)
   else
-    vim.notify("No broken links were found.", vim.log.levels.INFO, { title = "neowiki" })
+    vim.notify("Link cleanup skipped.", vim.log.levels.INFO, { title = "neowiki" })
   end
 end
 

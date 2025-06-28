@@ -433,7 +433,6 @@ wiki_action.process_link = function(cursor, line)
   return nil
 end
 
-
 ---
 -- Opens a file at a given path. If the file is already open in a window,
 -- it jumps to that window. Otherwise, it opens the file in the current window
@@ -468,8 +467,6 @@ wiki_action.open_file = function(full_path, open_cmd)
     vim.api.nvim_win_set_buf(0, bn_to_open)
   end
 end
-
-
 
 ---
 -- Adds a new wiki root path to the processed list at runtime.
@@ -547,6 +544,93 @@ wiki_action.open_wiki_index = function(name, open_cmd)
       vim.notify("No wiki path found.", vim.log.levels.ERROR, { title = "neowiki" })
     end
   end
+end
+
+---
+-- Scans the current buffer for markdown links that point to non-existent files.
+-- @return (table) A list of objects, where each object represents a line
+--   containing at least one broken link. Each object contains `lnum` and `line`.
+--   Returns an empty table if no broken links are found.
+--
+wiki_action.find_broken_links_in_buffer = function()
+  local broken_links_info = {}
+  local current_buf_path = vim.api.nvim_buf_get_name(0)
+  if not current_buf_path or current_buf_path == "" then
+    return broken_links_info -- Not a file buffer
+  end
+
+  local current_dir = vim.fn.fnamemodify(current_buf_path, ":p:h")
+  local all_lines = vim.api.nvim_buf_get_lines(0, 0, -1, false)
+
+  for i, line in ipairs(all_lines) do
+    local has_broken_link_on_line = false
+    local link_targets = wiki_action.find_all_link_targets(line)
+
+    for _, target in ipairs(link_targets) do
+      -- Ignore external URLs when checking for broken file links.
+      if not target:match("^%a+://") and not target:match("^www%.") then
+        local full_target_path = vim.fn.fnamemodify(vim.fs.joinpath(current_dir, target), ":p")
+        -- A link is considered broken if the target file isn't readable.
+        if vim.fn.filereadable(full_target_path) == 0 then
+          has_broken_link_on_line = true
+          break -- One broken link is enough to mark the entire line.
+        end
+      end
+    end
+
+    if has_broken_link_on_line then
+      table.insert(broken_links_info, { lnum = i, line = line })
+    end
+  end
+
+  return broken_links_info
+end
+
+---
+-- Removes lines from the current buffer based on the provided broken links info
+-- and notifies the user about the changes.
+-- @param broken_links_info (table) A list of objects, each with an `lnum` and `line`.
+--
+wiki_action.remove_lines_with_broken_links = function(broken_links_info)
+  if not broken_links_info or #broken_links_info == 0 then
+    return
+  end
+
+  local lines_to_keep = {}
+  local deleted_lines_details = {}
+  local delete_map = {}
+
+  for _, info in ipairs(broken_links_info) do
+    delete_map[info.lnum] = true
+    table.insert(deleted_lines_details, "Line " .. info.lnum .. ": " .. info.line)
+  end
+
+  -- Build a new list of lines to keep, which is safer than deleting
+  -- lines one by one and dealing with shifting line numbers.
+  local all_lines = vim.api.nvim_buf_get_lines(0, 0, -1, false)
+  for i, line in ipairs(all_lines) do
+    if not delete_map[i] then
+      table.insert(lines_to_keep, line)
+    end
+  end
+
+  vim.api.nvim_buf_set_lines(0, 0, -1, false, lines_to_keep)
+
+  -- Notify user of the changes.
+  local message = "Link cleanup complete.\nRemoved "
+    .. #deleted_lines_details
+    .. " line(s) with broken links:\n"
+    .. table.concat(deleted_lines_details, "\n")
+
+  vim.notify(message, vim.log.levels.INFO, {
+    title = "neowiki",
+    on_open = function(win)
+      local width = vim.api.nvim_win_get_width(win)
+      -- Calculate height based on number of deleted lines plus header lines.
+      local height = #deleted_lines_details + 3
+      vim.api.nvim_win_set_config(win, { height = height, width = math.min(width, 100) })
+    end,
+  })
 end
 
 return wiki_action
