@@ -101,8 +101,6 @@ local find_files = function(search_path, search_term, search_type)
   return vim.fn.globpath(search_path, glob_pattern, false, true)
 end
 
-
-
 ---
 -- Finds all wiki pages within a directory by calling the generic file finder.
 -- @param search_path (string) The absolute path of the directory to search.
@@ -184,4 +182,70 @@ finder.find_wiki_for_buffer = function(buf_path)
   return wiki_root, active_wiki_path, ultimate_wiki_root
 end
 
+---
+-- Finds all valid markdown link targets on a single line of text.
+-- @param line (string): The line to search.
+-- @return (table): A list of processed link targets found on the line.
+--
+local find_all_link_targets = function(line)
+  local targets = {}
+
+  -- Find standard markdown links: [text](target)
+  for file in line:gmatch("%]%(<?([^)>]+)>?%)") do
+    local processed = util.process_link_target(file, state.markdown_extension)
+    if processed then
+      table.insert(targets, processed)
+    end
+  end
+
+  -- Find wikilinks: [[target]]
+  for file in line:gmatch("%[%[([^]]+)%]%]") do
+    local processed = util.process_link_target(file, state.markdown_extension)
+    if processed then
+      table.insert(targets, processed)
+    end
+  end
+
+  return targets
+end
+
+---
+-- Scans the current buffer for markdown links that point to non-existent files.
+-- @return (table) A list of objects, where each object represents a line
+--   containing at least one broken link. Each object contains `lnum` and `line`.
+--   Returns an empty table if no broken links are found.
+--
+finder.find_broken_links_in_buffer = function()
+  local broken_links_info = {}
+  local current_buf_path = vim.api.nvim_buf_get_name(0)
+  if not current_buf_path or current_buf_path == "" then
+    return broken_links_info -- Not a file buffer
+  end
+
+  local current_dir = vim.fn.fnamemodify(current_buf_path, ":p:h")
+  local all_lines = vim.api.nvim_buf_get_lines(0, 0, -1, false)
+
+  for i, line in ipairs(all_lines) do
+    local has_broken_link_on_line = false
+    local link_targets = find_all_link_targets(line)
+
+    for _, target in ipairs(link_targets) do
+      -- Ignore external URLs when checking for broken file links.
+      if not util.is_web_link(target) then
+        local full_target_path = vim.fn.fnamemodify(vim.fs.joinpath(current_dir, target), ":p")
+        -- A link is considered broken if the target file isn't readable.
+        if vim.fn.filereadable(full_target_path) == 0 then
+          has_broken_link_on_line = true
+          break -- One broken link is enough to mark the entire line.
+        end
+      end
+    end
+
+    if has_broken_link_on_line then
+      table.insert(broken_links_info, { lnum = i, line = line })
+    end
+  end
+
+  return broken_links_info
+end
 return finder

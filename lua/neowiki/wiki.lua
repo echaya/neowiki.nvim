@@ -54,7 +54,7 @@ wiki.follow_link = function(open_cmd)
 
   if filename and filename:len() > 0 then
     -- try open_external if the filename is a url
-    if filename:match("^%a+://") or filename:match("^www%.") then
+    if util.is_web_link(filename) then
       util.open_external(filename)
       return
     end
@@ -211,7 +211,7 @@ end
 -- populate quickfix, remove lines, or cancel.
 --
 wiki.cleanup_broken_links = function()
-  local broken_links_info = wiki_action.find_broken_links_in_buffer()
+  local broken_links_info = finder.find_broken_links_in_buffer()
 
   if not broken_links_info or #broken_links_info == 0 then
     vim.notify("No broken links were found.", vim.log.levels.INFO, { title = "neowiki" })

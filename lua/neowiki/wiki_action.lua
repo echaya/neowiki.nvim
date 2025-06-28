@@ -346,51 +346,6 @@ wiki_action.prompt_wiki_page = function(search_root, current_buf_path, on_comple
 end
 
 ---
--- Processes a raw link target, cleaning it and appending the configured extension if necessary.
--- @param target (string): The raw link target string (e.g., "my page").
--- @return (string|nil): The processed link target (e.g., "my_page.md"), or nil.
---
-local process_link_target = function(target)
-  if not target or not target:match("%S") then
-    return nil
-  end
-  local clean_target = target:match("^%s*(.-)%s*$")
-
-  local ext = state.markdown_extension
-  if not clean_target:match("^%a+://") and not clean_target:match("%.%w+$") then
-    clean_target = clean_target .. ext
-  end
-  return clean_target
-end
-
----
--- Finds all valid markdown link targets on a single line of text.
--- @param line (string): The line to search.
--- @return (table): A list of processed link targets found on the line.
---
-wiki_action.find_all_link_targets = function(line)
-  local targets = {}
-
-  -- Find standard markdown links: [text](target)
-  for file in line:gmatch("%]%(<?([^)>]+)>?%)") do
-    local processed = process_link_target(file)
-    if processed then
-      table.insert(targets, processed)
-    end
-  end
-
-  -- Find wikilinks: [[target]]
-  for file in line:gmatch("%[%[([^]]+)%]%]") do
-    local processed = process_link_target(file)
-    if processed then
-      table.insert(targets, processed)
-    end
-  end
-
-  return targets
-end
-
----
 -- Processes the text under the cursor to find and return a markdown link target, if one exists.
 -- @param cursor (table): The cursor position `{row, col}`.
 -- @param line (string): The content of the current line.
@@ -409,7 +364,7 @@ wiki_action.process_link = function(cursor, line)
     start_pos1 = match_end + 1
 
     if cursor[2] >= match_start and cursor[2] <= match_end then
-      return process_link_target(file)
+      return util.process_link_target(file, state.markdown_extension)
     end
   end
   -- Pattern for [[file]]
@@ -423,7 +378,7 @@ wiki_action.process_link = function(cursor, line)
     start_pos2 = match_end + 1
 
     if cursor[2] >= match_start and cursor[2] <= match_end then
-      local processed_link = process_link_target(file)
+      local processed_link = util.process_link_target(file, state.markdown_extension)
       if processed_link then
         return "./" .. processed_link
       end
@@ -544,46 +499,6 @@ wiki_action.open_wiki_index = function(name, open_cmd)
       vim.notify("No wiki path found.", vim.log.levels.ERROR, { title = "neowiki" })
     end
   end
-end
-
----
--- Scans the current buffer for markdown links that point to non-existent files.
--- @return (table) A list of objects, where each object represents a line
---   containing at least one broken link. Each object contains `lnum` and `line`.
---   Returns an empty table if no broken links are found.
---
-wiki_action.find_broken_links_in_buffer = function()
-  local broken_links_info = {}
-  local current_buf_path = vim.api.nvim_buf_get_name(0)
-  if not current_buf_path or current_buf_path == "" then
-    return broken_links_info -- Not a file buffer
-  end
-
-  local current_dir = vim.fn.fnamemodify(current_buf_path, ":p:h")
-  local all_lines = vim.api.nvim_buf_get_lines(0, 0, -1, false)
-
-  for i, line in ipairs(all_lines) do
-    local has_broken_link_on_line = false
-    local link_targets = wiki_action.find_all_link_targets(line)
-
-    for _, target in ipairs(link_targets) do
-      -- Ignore external URLs when checking for broken file links.
-      if not target:match("^%a+://") and not target:match("^www%.") then
-        local full_target_path = vim.fn.fnamemodify(vim.fs.joinpath(current_dir, target), ":p")
-        -- A link is considered broken if the target file isn't readable.
-        if vim.fn.filereadable(full_target_path) == 0 then
-          has_broken_link_on_line = true
-          break -- One broken link is enough to mark the entire line.
-        end
-      end
-    end
-
-    if has_broken_link_on_line then
-      table.insert(broken_links_info, { lnum = i, line = line })
-    end
-  end
-
-  return broken_links_info
 end
 
 ---

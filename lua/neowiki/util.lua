@@ -231,6 +231,14 @@ util.is_float = function()
   return conf.relative and conf.relative ~= ""
 end
 
+util.is_web_link = function(target)
+  if not target or target == "" then
+    return false
+  end
+  -- Returns true if the string starts with a protocol like http:// or with www.
+  return target:match("^%a+://") or target:match("^www%.")
+end
+
 ---
 -- Populates the quickfix list with the provided broken link information and opens it.
 -- @param broken_links_info (table) A list of objects, each with an `lnum` and `line`.
@@ -259,6 +267,24 @@ util.populate_quickfix_list = function(quickfix_info)
       { title = "neowiki" }
     )
   end
+end
+
+---
+-- Processes a raw link target, cleaning it and appending the configured extension if necessary.
+-- @param target (string): The raw link target string (e.g., "my page").
+-- @param ext (string): The extension (e.g., ".md").
+-- @return (string|nil): The processed link target (e.g., "my_page.md"), or nil.
+--
+util.process_link_target = function(target, ext)
+  if not target or not target:match("%S") then
+    return nil
+  end
+  local clean_target = target:match("^%s*(.-)%s*$")
+
+  if not util.is_web_link(clean_target) then
+    clean_target = clean_target .. ext
+  end
+  return clean_target
 end
 
 return util
