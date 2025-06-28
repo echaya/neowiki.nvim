@@ -295,4 +295,17 @@ wiki.insert_wiki_link = function()
   wiki_action.prompt_wiki_page(search_root, current_buf_path, on_page_select)
 end
 
+wiki.rename_wiki_page = function()
+  -- Pre-check to ensure we are in a valid wiki context.
+  if not vim.b[0] or not vim.b[0].wiki_root then
+    vim.notify(
+      "Not inside a neowiki wiki. Cannot rename page.",
+      vim.log.levels.WARN,
+      { title = "neowiki" }
+    )
+    return
+  end
+  wiki_action.rename_wiki_page()
+end
+
 return wiki

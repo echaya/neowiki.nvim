@@ -43,6 +43,8 @@ local config = {
     cleanup_links = "<leader>wc",
     -- Opens a selector to find and insert a link to another wiki page.
     insert_link = "<leader>wi",
+    -- Keymap to rename the current wiki page.
+    rename_page = "<leader>wr",
 
     -- Keymap to close the floating wiki.
     close_float = "q",
@@ -74,4 +76,3 @@ local config = {
 }
 
 return config
-
