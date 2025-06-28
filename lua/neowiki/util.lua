@@ -281,7 +281,12 @@ util.process_link_target = function(target, ext)
   end
   local clean_target = target:match("^%s*(.-)%s*$")
 
-  if not util.is_web_link(clean_target) then
+  if util.is_web_link(clean_target) then
+    return clean_target
+  end
+
+  local has_extension = clean_target:match("%.%w+$")
+  if not has_extension then
     clean_target = clean_target .. ext
   end
   return clean_target
