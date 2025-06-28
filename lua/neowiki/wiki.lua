@@ -207,22 +207,41 @@ wiki.delete_wiki = function()
 end
 
 ---
--- Scans the current buffer and removes any lines that contain broken markdown links
--- (i.e., links pointing to non-existent files), after user confirmation.
+-- Finds broken links, displays them, and prompts the user for action:
+-- populate quickfix, remove lines, or cancel.
 --
 wiki.cleanup_broken_links = function()
   local broken_links_info = wiki_action.find_broken_links_in_buffer()
 
-  if #broken_links_info == 0 then
+  if not broken_links_info or #broken_links_info == 0 then
     vim.notify("No broken links were found.", vim.log.levels.INFO, { title = "neowiki" })
     return
   end
 
-  local choice = vim.fn.confirm("Clean up all broken links from this page?", "&Yes\n&No")
+  local prompt_lines = {
+    string.format("Found %d line(s) with broken links:", #broken_links_info),
+    "", -- Add a blank line for readability.
+  }
+  for _, info in ipairs(broken_links_info) do
+    -- Truncate long lines for a cleaner prompt.
+    local display_line = info.line
+    if #display_line > 70 then
+      display_line = display_line:sub(1, 67) .. "..."
+    end
+    table.insert(prompt_lines, string.format("L%d: %s", info.lnum, display_line))
+  end
+  table.insert(prompt_lines, "\nWhat would you like to do?")
+  local prompt_message = table.concat(prompt_lines, "\n")
+
+  -- The '&' creates a hotkey for each option.
+  local choice = vim.fn.confirm(prompt_message, "&Quickfix\n&Remove Lines\n&Cancel")
+
   if choice == 1 then
+    util.populate_quickfix_list(broken_links_info)
+  elseif choice == 2 then
     wiki_action.remove_lines_with_broken_links(broken_links_info)
-  else
-    vim.notify("Link cleanup skipped.", vim.log.levels.INFO, { title = "neowiki" })
+  else -- choice is 3 (Cancel) or 0 (dialog closed).
+    vim.notify("Link cleanup canceled.", vim.log.levels.INFO, { title = "neowiki" })
   end
 end
 

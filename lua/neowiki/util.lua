@@ -231,4 +231,34 @@ util.is_float = function()
   return conf.relative and conf.relative ~= ""
 end
 
+---
+-- Populates the quickfix list with the provided broken link information and opens it.
+-- @param broken_links_info (table) A list of objects, each with an `lnum` and `line`.
+--
+util.populate_quickfix_list = function(quickfix_info)
+  local qf_list = {}
+  -- Get the filename of the current buffer to make quickfix entries jumpable.
+  local filename = vim.api.nvim_buf_get_name(0)
+
+  for _, info in ipairs(quickfix_info) do
+    table.insert(qf_list, {
+      filename = filename,
+      lnum = info.lnum,
+      text = info.line,
+    })
+  end
+
+  if #qf_list > 0 then
+    -- Set the quickfix list with our findings.
+    vim.fn.setqflist(qf_list)
+    -- Open the quickfix window to display the list.
+    vim.cmd("copen")
+    vim.notify(
+      #qf_list .. " broken link(s) added to quickfix list.",
+      vim.log.levels.INFO,
+      { title = "neowiki" }
+    )
+  end
+end
+
 return util
