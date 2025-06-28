@@ -132,9 +132,13 @@ wiki.create_or_open_wiki_file = function(open_cmd)
 
   util.ensure_path_exists(dir_path)
   if vim.fn.filereadable(full_path) == 0 then
-    local file = io.open(full_path, "w")
-    if file then
+    local ok, err = pcall(function()
+      local file = assert(io.open(full_path, "w"), "Failed to open file for writing.")
       file:close()
+    end)
+    if not ok then
+      vim.notify("Error creating file: " .. err, vim.log.levels.ERROR, { title = "neowiki" })
+      return
     end
   end
   wiki_action.open_file(full_path, open_cmd)
