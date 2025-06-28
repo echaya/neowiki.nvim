@@ -570,16 +570,6 @@ local function update_link_in_index(old_path, new_path, index_path)
   local replacements = {
 
     {
-      search = old_rel_path_w_ext,
-      replace = new_rel_path_w_ext,
-    },
-    {
-      search = old_rel_path_wo_ext,
-      replace = new_rel_path_wo_ext,
-    },
-    -- paths solved from util.get_relative_path always starts with "./"
-    -- also to match links without
-    {
       search = old_rel_path_wo_ext:gsub("^%./", ""),
       replace = new_rel_path_wo_ext:gsub("^%./", ""),
     },
@@ -600,16 +590,90 @@ local function update_link_in_index(old_path, new_path, index_path)
 end
 
 ---
--- Handles the core logic of renaming a file and updating its link.
--- This is the main orchestrator for the rename feature.
---
+-- Helper to extract the first valid link target from a line of text.
+-- @param line (string) The line containing a markdown or wiki link.
+-- @return (string|nil) The extracted link target (e.g., "page.md" or "./relative/page.md").
+local function _extract_link_target_from_line(line)
+  -- First, try to find a standard markdown link: [text](target)
+  local md_link_target = line:match("%]%(<?([^)>]+)>?%)")
+  if md_link_target then
+    return md_link_target
+  end
+
+  -- If not found, try to find a wikilink: [[target]]
+  local wikilink_target = line:match("%[%[([^]]+)%]%]")
+  if wikilink_target then
+    -- process_link_target adds the extension if missing
+    return util.process_link_target(wikilink_target, state.markdown_extension)
+  end
+
+  return nil
+end
+
+---
+-- Processes backlinks found by rg, verifies them, and updates the files.
+-- @param old_path (string) The original absolute path of the file being renamed.
+-- @param new_filename (string) The new filename.
+-- @param backlinks (table) The list of matches from finder.find_backlinks.
+-- @return (table) A list of changes suitable for the quickfix list.
+local function _process_backlinks(old_path, new_filename, backlinks)
+  local changes_for_qf = {}
+  local files_to_update = {} -- Group changes by file
+
+  for _, match in ipairs(backlinks) do
+    local link_target = _extract_link_target_from_line(match.line)
+    if link_target and not util.is_web_link(link_target) then
+      local match_dir = vim.fn.fnamemodify(match.file, ":h")
+      local resolved_link_path = vim.fs.joinpath(match_dir, link_target)
+
+      -- Verify if the found link truly points to the file we are renaming
+      if
+        util.normalize_path_for_comparison(resolved_link_path)
+        == util.normalize_path_for_comparison(old_path)
+      then
+        local new_relative_path =
+          util.get_relative_path(match_dir, vim.fs.joinpath(match_dir, new_filename))
+        local new_line = match.line:gsub(vim.pesc(link_target), new_relative_path)
+
+        if not files_to_update[match.file] then
+          files_to_update[match.file] = {}
+        end
+        -- Store the change by line number to handle multiple updates in one file
+        files_to_update[match.file][match.lnum] = new_line
+      end
+    end
+  end
+
+  for file_path, changes in pairs(files_to_update) do
+    local lines = vim.fn.readfile(file_path)
+    for lnum, new_line in pairs(changes) do
+      lines[lnum] = new_line -- Update line content (lnum is 1-based, lines is 0-indexed)
+      table.insert(changes_for_qf, { filename = file_path, lnum = lnum, text = new_line })
+    end
+    vim.fn.writefile(lines, file_path)
+  end
+
+  return changes_for_qf
+end
+
+---
+-- Handles the core logic of renaming a file and updating all backlinks.
+-- This is the main orchestrator for the enhanced rename feature.
 wiki_action.rename_wiki_page = function()
   local current_path = vim.api.nvim_buf_get_name(0)
-  local wiki_root = vim.b[0].wiki_root
+  local ultimate_wiki_root = vim.b[0].ultimate_wiki_root
   local active_wiki_path = vim.b[0].active_wiki_path
-  local index_path = vim.fs.joinpath(wiki_root, config.index_file)
+  local index_path = vim.fs.joinpath(vim.b[0].wiki_root, config.index_file)
 
-  -- 1. Guard Clause: Disallow renaming of an index file.
+  -- 1. Guard Clauses: Ensure we are in a valid state to rename.
+  if not ultimate_wiki_root then
+    vim.notify(
+      "Not inside a neowiki wiki. Cannot rename page.",
+      vim.log.levels.WARN,
+      { title = "neowiki" }
+    )
+    return
+  end
   if
     util.normalize_path_for_comparison(current_path)
     == util.normalize_path_for_comparison(index_path)
@@ -619,57 +683,61 @@ wiki_action.rename_wiki_page = function()
   end
 
   local current_filename = vim.fn.fnamemodify(current_path, ":t")
-  -- 2. Prompt user for the new name.
+
+  -- 2. Get New Filename: Prompt the user for the new page name.
   vim.ui.input({
     prompt = "Enter new page name:",
     default = current_filename,
     completion = "file",
   }, function(input)
-    if not input or input == "" then
-      vim.notify("Rename cancelled.", vim.log.levels.INFO, { title = "neowiki" })
+    if not input or input == "" or input == current_filename then
+      vim.notify("Rename cancelled or name unchanged.", vim.log.levels.INFO, { title = "neowiki" })
       return
     end
 
-    -- 3. Process the new filename.
     local new_filename = input
-    -- Append default extension if not provided.
     if vim.fn.fnamemodify(new_filename, ":e") == "" then
       new_filename = new_filename .. state.markdown_extension
     end
-
     local new_full_path = vim.fs.joinpath(active_wiki_path, new_filename)
 
-    -- If the new path is the same as the old one, do nothing.
-    if
-      util.normalize_path_for_comparison(new_full_path)
-      == util.normalize_path_for_comparison(current_path)
-    then
+    -- 3. Find and Update Backlinks: Use rg for a global search.
+    local backlinks = finder.find_backlinks(ultimate_wiki_root, current_filename)
+    local changes_for_qf = {}
+
+    if backlinks then
+      changes_for_qf = _process_backlinks(current_path, new_filename, backlinks)
+    else
+      -- 4. Fallback Logic: If rg fails or finds nothing, update only the parent index.
+      update_link_in_index(current_path, new_full_path, index_path)
       vim.notify(
-        "New name is the same as the old name. No changes made.",
+        "rg search failed or no backlinks found. Updated parent index only.",
         vim.log.levels.INFO,
         { title = "neowiki" }
       )
-      return
     end
 
-    -- Create subdirectory if specified in the new name.
+    -- 5. Rename the File: Perform the actual file system operation.
     util.ensure_path_exists(vim.fn.fnamemodify(new_full_path, ":h"))
-
-    -- 4. Rename the file on the filesystem.
     local ok, err = pcall(vim.fn.rename, current_path, new_full_path)
     if not ok then
       vim.notify("Error renaming file: " .. err, vim.log.levels.ERROR, { title = "neowiki" })
       return
     end
 
-    -- 5. Correct the link in the immediate index file.
-    update_link_in_index(current_path, new_full_path, index_path)
+    -- 6. Finalize: Update quickfix list and buffers.
+    if #changes_for_qf > 0 then
+      util.populate_quickfix_list(changes_for_qf)
+      vim.notify(
+        "Updated " .. #changes_for_qf .. " backlink(s). See quickfix list for details.",
+        vim.log.levels.INFO,
+        { title = "neowiki" }
+      )
+    end
 
-    -- 6. Finalize: Close old buffer and open the new file.
     vim.cmd("bdelete! " .. vim.fn.bufnr("%"))
     wiki_action.open_file(new_full_path)
     vim.notify("Page renamed to " .. new_filename, vim.log.levels.INFO, { title = "neowiki" })
   end)
 end
-
 return wiki_action
