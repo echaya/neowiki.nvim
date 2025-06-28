@@ -105,6 +105,9 @@ wiki_action.create_buffer_keymaps = function(buffer_number)
     insert_link = {
       n = { rhs = require("neowiki.wiki").insert_wiki_link, desc = "Insert link to a page" },
     },
+    rename_page = {
+      n = { rhs = require("neowiki.wiki").rename_wiki_page, desc = "Rename current page" },
+    },
   }
 
   -- If we are in a floating window, override split actions to show a notification.
@@ -546,6 +549,127 @@ wiki_action.remove_lines_with_broken_links = function(broken_links_info)
       vim.api.nvim_win_set_config(win, { height = height, width = math.min(width, 100) })
     end,
   })
+end
+
+---
+-- Updates all link formats pointing to a renamed page within its parent index file.
+-- @param old_path (string): The original absolute path of the page.
+-- @param new_path (string): The new absolute path of the page.
+-- @param index_path (string): The absolute path of the index file to update.
+--
+local function update_link_in_index(old_path, new_path, index_path)
+  local index_dir = vim.fn.fnamemodify(index_path, ":p:h")
+
+  local old_rel_path_w_ext = util.get_relative_path(index_dir, old_path)
+  local new_rel_path_w_ext = util.get_relative_path(index_dir, new_path)
+
+  local extension_pattern = vim.pesc(state.markdown_extension) .. "$"
+  local old_rel_path_wo_ext = old_rel_path_w_ext:gsub(extension_pattern, "")
+  local new_rel_path_wo_ext = new_rel_path_w_ext:gsub(extension_pattern, "")
+
+  local replacements = {
+
+    {
+      search = old_rel_path_w_ext,
+      replace = new_rel_path_w_ext,
+    },
+    {
+      search = old_rel_path_wo_ext,
+      replace = new_rel_path_wo_ext,
+    },
+    -- paths solved from util.get_relative_path always starts with "./"
+    -- also to match links without
+    {
+      search = old_rel_path_wo_ext:gsub("^%./", ""),
+      replace = new_rel_path_wo_ext:gsub("^%./", ""),
+    },
+    {
+      search = old_rel_path_w_ext:gsub("^%./", ""),
+      replace = new_rel_path_w_ext:gsub("^%./", ""),
+    },
+  }
+
+  local ok, err = util.replace_in_file(index_path, replacements)
+  if not ok then
+    vim.notify(
+      "Failed to update link in index: " .. err,
+      vim.log.levels.ERROR,
+      { title = "neowiki" }
+    )
+  end
+end
+
+---
+-- Handles the core logic of renaming a file and updating its link.
+-- This is the main orchestrator for the rename feature.
+--
+wiki_action.rename_wiki_page = function()
+  local current_path = vim.api.nvim_buf_get_name(0)
+  local wiki_root = vim.b[0].wiki_root
+  local active_wiki_path = vim.b[0].active_wiki_path
+  local index_path = vim.fs.joinpath(wiki_root, config.index_file)
+
+  -- 1. Guard Clause: Disallow renaming of an index file.
+  if
+    util.normalize_path_for_comparison(current_path)
+    == util.normalize_path_for_comparison(index_path)
+  then
+    vim.notify("Renaming an index file is not allowed.", vim.log.levels.WARN, { title = "neowiki" })
+    return
+  end
+
+  local current_filename = vim.fn.fnamemodify(current_path, ":t")
+  -- 2. Prompt user for the new name.
+  vim.ui.input({
+    prompt = "Enter new page name:",
+    default = current_filename,
+    completion = "file",
+  }, function(input)
+    if not input or input == "" then
+      vim.notify("Rename cancelled.", vim.log.levels.INFO, { title = "neowiki" })
+      return
+    end
+
+    -- 3. Process the new filename.
+    local new_filename = input
+    -- Append default extension if not provided.
+    if vim.fn.fnamemodify(new_filename, ":e") == "" then
+      new_filename = new_filename .. state.markdown_extension
+    end
+
+    local new_full_path = vim.fs.joinpath(active_wiki_path, new_filename)
+
+    -- If the new path is the same as the old one, do nothing.
+    if
+      util.normalize_path_for_comparison(new_full_path)
+      == util.normalize_path_for_comparison(current_path)
+    then
+      vim.notify(
+        "New name is the same as the old name. No changes made.",
+        vim.log.levels.INFO,
+        { title = "neowiki" }
+      )
+      return
+    end
+
+    -- Create subdirectory if specified in the new name.
+    util.ensure_path_exists(vim.fn.fnamemodify(new_full_path, ":h"))
+
+    -- 4. Rename the file on the filesystem.
+    local ok, err = pcall(vim.fn.rename, current_path, new_full_path)
+    if not ok then
+      vim.notify("Error renaming file: " .. err, vim.log.levels.ERROR, { title = "neowiki" })
+      return
+    end
+
+    -- 5. Correct the link in the immediate index file.
+    update_link_in_index(current_path, new_full_path, index_path)
+
+    -- 6. Finalize: Close old buffer and open the new file.
+    vim.cmd("bdelete! " .. vim.fn.bufnr("%"))
+    wiki_action.open_file(new_full_path)
+    vim.notify("Page renamed to " .. new_filename, vim.log.levels.INFO, { title = "neowiki" })
+  end)
 end
 
 return wiki_action
