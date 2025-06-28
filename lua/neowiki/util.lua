@@ -45,6 +45,8 @@ util.get_relative_path = function(from_dir, to_path)
   -- Step 1: Normalize paths to be absolute and use forward slashes.
   local from_abs = vim.fn.fnamemodify(from_dir, ":p"):gsub("\\", "/")
   local to_abs = vim.fn.fnamemodify(to_path, ":p"):gsub("\\", "/")
+  from_abs = from_abs:gsub("/+", "/")
+  to_abs = to_abs:gsub("/+", "/")
 
   -- Remove trailing slashes to ensure consistent splitting.
   from_abs = from_abs:gsub("/$", "")
@@ -54,7 +56,12 @@ util.get_relative_path = function(from_dir, to_path)
   local to_parts = vim.split(to_abs, "/")
 
   -- On Windows, if the drives are different, a relative path is impossible.
-  if vim.fn.has("win32") == 1 and from_parts[1]:lower() ~= to_parts[1]:lower() then
+  if
+    vim.fn.has("win32") == 1
+    and #from_parts > 0
+    and #to_parts > 0
+    and from_parts[1]:lower() ~= to_parts[1]:lower()
+  then
     return to_abs -- Return the absolute path as a fallback.
   end
 
@@ -89,14 +96,24 @@ util.get_relative_path = function(from_dir, to_path)
   -- If the resulting path is empty, it means the target is in the same directory.
   -- In this case, the relative path is just the filename.
   if #rel_parts == 0 then
-    table.insert(rel_parts, to_parts[#to_parts])
+    -- This handles cases where from_dir and to_path point to the same directory.
+    if #to_parts > #from_parts then
+      table.insert(rel_parts, to_parts[#to_parts])
+    else
+      table.insert(rel_parts, ".")
+    end
   end
 
   local final_path = table.concat(rel_parts, "/")
 
-  -- Prepend "./" to make it an explicit relative link for markdown consistency.
-  if not final_path:match("^%./") and not final_path:match("^%.%./") then
+  -- Prepend "./" for explicit relative links unless it already starts with '../' or './'
+  if not final_path:match("^%.%.?/") then
     final_path = "./" .. final_path
+  end
+
+  -- If the result is just '.', return './' for consistency in links.
+  if final_path == "." then
+    return "./"
   end
 
   return final_path
