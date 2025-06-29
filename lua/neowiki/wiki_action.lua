@@ -522,7 +522,7 @@ end
 ---
 -- Removes lines from the current buffer based on the provided broken links info
 -- and notifies the user about the changes.
--- @param broken_links_info (table) A list of objects, each with an `lnum` and `line`.
+-- @param broken_links_info (table) A list of objects, each with an `lnum` and `text`.
 --
 wiki_action.remove_lines_with_broken_links = function(broken_links_info)
   if not broken_links_info or #broken_links_info == 0 then
@@ -535,7 +535,7 @@ wiki_action.remove_lines_with_broken_links = function(broken_links_info)
 
   for _, info in ipairs(broken_links_info) do
     delete_map[info.lnum] = true
-    table.insert(deleted_lines_details, "Line " .. info.lnum .. ": " .. info.line)
+    table.insert(deleted_lines_details, "Line " .. info.lnum .. ": " .. info.text)
   end
 
   -- Build a new list of lines to keep, which is safer than deleting
@@ -582,7 +582,6 @@ local function _find_and_replace_link_markup(line, new_target_path)
     local old_full_markup = link_text .. old_target_part
     -- And create a new markup with the new path.
     local new_full_markup = link_text .. "(" .. new_target_path .. ")"
-    vim.notify(old_target_part .. " " .. new_full_markup)
     return line:gsub(vim.pesc(old_full_markup), new_full_markup, 1)
   end
 
@@ -610,7 +609,7 @@ local function _update_verified_links(old_abs_path, new_full_path, backlink_cand
 
   for _, match in ipairs(backlink_candidates) do
     local temp_cursor = { match.lnum, 0 }
-    local processed_target = wiki_action.process_link(temp_cursor, match.line)
+    local processed_target = wiki_action.process_link(temp_cursor, match.text)
 
     if processed_target and not util.is_web_link(processed_target) then
       local match_dir = vim.fn.fnamemodify(match.file, ":p:h")
@@ -625,7 +624,7 @@ local function _update_verified_links(old_abs_path, new_full_path, backlink_cand
         local new_relative_path = util.get_relative_path(match_dir, new_full_path)
 
         -- Call the new all-in-one function to perform the format-aware replacement.
-        local new_line, count = _find_and_replace_link_markup(match.line, new_relative_path)
+        local new_line, count = _find_and_replace_link_markup(match.text, new_relative_path)
 
         if count > 0 then
           if not files_to_update[match.file] then
@@ -742,7 +741,7 @@ wiki_action.rename_wiki_page = function()
           table.insert(backlink_candidates, {
             file = current_buf_path,
             lnum = i,
-            line = l,
+            text = l,
           })
         end
       end

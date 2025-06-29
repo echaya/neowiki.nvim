@@ -212,7 +212,7 @@ end
 ---
 -- Scans the current buffer for markdown links that point to non-existent files.
 -- @return (table) A list of objects, where each object represents a line
---   containing at least one broken link. Each object contains `lnum` and `line`.
+--   containing at least one broken link. Each object contains `lnum` and `text`.
 --   Returns an empty table if no broken links are found.
 --
 finder.find_broken_links_in_buffer = function()
@@ -303,7 +303,7 @@ finder.find_backlinks = function(search_path, target_filename)
       table.insert(matches, {
         file = file_path,
         lnum = tonumber(lnum_str),
-        line = line_content,
+        text = line_content,
       })
     end
   end

@@ -276,9 +276,9 @@ util.populate_quickfix_list = function(quickfix_info, title)
   local qf_list = {}
   for _, info in ipairs(quickfix_info) do
     table.insert(qf_list, {
-      filename = info.filename, -- FIX: Use the filename from the info object.
+      filename = info.filename,
       lnum = info.lnum,
-      text = info.text, -- FIX: Use the correct 'text' field.
+      text = info.text,
     })
   end
 
