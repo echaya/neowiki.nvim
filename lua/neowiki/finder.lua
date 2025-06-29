@@ -242,7 +242,11 @@ finder.find_broken_links_in_buffer = function()
     end
 
     if has_broken_link_on_line then
-      table.insert(broken_links_info, { lnum = i, line = line })
+      table.insert(broken_links_info, {
+        filename = current_buf_path,
+        lnum = i,
+        text = line,
+      })
     end
   end
 

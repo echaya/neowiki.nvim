@@ -574,7 +574,7 @@ end
 local function _find_and_replace_link_markup(line, new_target_path)
   -- 1. First, try to find and replace a standard markdown link: [text](target)
   --    We capture the link text part and the target part separately.
-local md_pattern = "(%[.-%])(%(.-%))"
+  local md_pattern = "(%[.-%])(%(.-%))"
   local link_text, old_target_part = line:match(md_pattern)
 
   if link_text and old_target_part then
