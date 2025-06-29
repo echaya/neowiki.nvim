@@ -262,7 +262,7 @@ finder.find_backlinks = function(search_path, target_filename)
   end
 
   local fname_no_ext = vim.fn.fnamemodify(target_filename, ":t:r")
-  local fname_pattern = fname_no_ext:gsub("([%(%)%.%+%[%]])", "\\%1")
+  local fname_pattern = fname_no_ext:gsub("([%(%)%.%+%[%]])", "\\%1"):gsub("/", "[\\/]")
 
   local wikilink_part_prefix = [=[\[\[[^\]]*]=]
   local wikilink_part_suffix = [=[[^\]]*\]\]]=]
@@ -293,6 +293,8 @@ finder.find_backlinks = function(search_path, target_filename)
     local file_path, lnum_str, _, line_content = line:match("^(.-):(%d+):(%d+):(.*)$")
 
     if file_path and lnum_str and line_content then
+      -- for debug
+      vim.notify(file_path .. " " .. lnum_str .. " " .. line_content)
       table.insert(matches, {
         file = file_path,
         lnum = tonumber(lnum_str),
