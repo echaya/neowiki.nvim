@@ -749,15 +749,11 @@ wiki_action.rename_wiki_page = function()
     return
   end
 
-  if
-    util.normalize_path_for_comparison(old_abs_path)
-    == util.normalize_path_for_comparison(vim.fs.joinpath(vim.b[0].wiki_root, config.index_file))
-  then
+  local old_filename = vim.fn.fnamemodify(old_abs_path, ":t")
+  if old_filename == config.index_file then
     vim.notify("Renaming an index file is not allowed.", vim.log.levels.WARN, { title = "neowiki" })
     return
   end
-
-  local old_filename = vim.fn.fnamemodify(old_abs_path, ":t")
 
   -- Step 3: Prompt for the new name.
   vim.ui.input({
@@ -783,7 +779,7 @@ wiki_action.rename_wiki_page = function()
       return
     end
 
-      -- Step 5: ix broken links using `rg` fallback to within page search
+    -- Step 5: fix broken links using `rg` fallback to native within page search
     vim.notify("Page renamed to " .. new_filename, vim.log.levels.INFO, { title = "neowiki" })
     update_backlinks_and_report(ultimate_wiki_root, old_filename, old_abs_path, new_full_path)
 
