@@ -566,69 +566,81 @@ wiki_action.remove_lines_with_broken_links = function(broken_links_info)
   })
 end
 
----
--- Finds the full markup of the first link on a given line.
--- @param line (string) The line to search.
--- @return (string|nil) The full link markup (e.g., "[[page]]") or nil.
-local function _find_first_link_markup(line)
-  -- Combined pattern to find either a markdown link or a wikilink.
-  local pattern = "(%[(.-)%]%(<?([^)>]+)>?%)|%[%[.-%]%])"
-  local full_match = line:match(pattern)
-  if full_match then
-    vim.notify("full_match: " .. full_match)
+-- Finds the first link on a line and replaces it with a new one,
+-- intelligently preserving the original link's format.
+-- @param line (string) The line containing the link to replace.
+-- @param new_target_path (string) The new relative path for the link's target.
+-- @return (string, number) The modified line and the count of replacements.
+local function _find_and_replace_link_markup(line, new_target_path)
+  -- 1. First, try to find and replace a standard markdown link: [text](target)
+  --    We capture the link text part and the target part separately.
+local md_pattern = "(%[.-%])(%(.-%))"
+  local link_text, old_target_part = line:match(md_pattern)
+
+  if link_text and old_target_part then
+    -- It's a markdown link. We preserve the `link_text` part.
+    local old_full_markup = link_text .. old_target_part
+    -- And create a new markup with the new path.
+    local new_full_markup = link_text .. "(" .. new_target_path .. ")"
+    vim.notify(old_target_part .. " " .. new_full_markup)
+    return line:gsub(vim.pesc(old_full_markup), new_full_markup, 1)
   end
-  return full_match
+
+  -- 2. If no markdown link was found, try to find and replace a wikilink: [[target]]
+  local wiki_pattern = "(%[%[.-%]%])"
+  local old_full_markup = line:match(wiki_pattern)
+
+  if old_full_markup then
+    -- It's a wikilink. We create a new one, removing the file extension for the text.
+    local new_link_text = vim.fn.fnamemodify(new_target_path, ":r")
+    local new_full_markup = "[[" .. new_link_text .. "]]"
+    return line:gsub(vim.pesc(old_full_markup), new_full_markup, 1)
+  end
+
+  -- 3. If no link of either type was found, return the original line.
+  return line, 0
 end
+
 ---
 -- Processes a list of backlink candidates, verifies them, and updates the files.
--- @param old_abs_path (string) The original absolute path of the file being renamed.
--- @param new_full_path (string) The new absolute path for the renamed file.
--- @param backlink_candidates (table) The list of matches from finder.find_backlinks or a fallback.
--- @return (table) A list of changes suitable for the quickfix list.
+-- This version now uses the new, smarter replacement helper function.
 local function _update_verified_links(old_abs_path, new_full_path, backlink_candidates)
   local changes_for_qf = {}
   local files_to_update = {} -- Group changes by file to minimize I/O
-  old_abs_path = util.normalize_path_for_comparison(old_abs_path)
 
   for _, match in ipairs(backlink_candidates) do
-    local processed_target = wiki_action.process_link(nil, match.line)
+    local temp_cursor = { match.lnum, 0 }
+    local processed_target = wiki_action.process_link(temp_cursor, match.line)
+
     if processed_target and not util.is_web_link(processed_target) then
       local match_dir = vim.fn.fnamemodify(match.file, ":p:h")
-      local resolved_link_path = vim.fs.joinpath(match_dir, processed_target)
-      resolved_link_path = util.normalize_path_for_comparison(resolved_link_path)
+      local resolved_link_path =
+        vim.fn.fnamemodify(vim.fs.joinpath(match_dir, processed_target), ":p")
 
-      if old_abs_path == resolved_link_path then
-        -- If verified, now find the full markup to replace.
-        local full_match_to_replace = _find_first_link_markup(match.line)
+      if
+        util.normalize_path_for_comparison(resolved_link_path)
+        == util.normalize_path_for_comparison(old_abs_path)
+      then
+        -- If verified, calculate the new relative path for the target file.
+        local new_relative_path = util.get_relative_path(match_dir, new_full_path)
 
-        if full_match_to_replace then
-          local new_relative_path = util.get_relative_path(match_dir, new_full_path)
-          local new_link_text = vim.fn.fnamemodify(new_relative_path, ":r")
-          local new_link_markup = "[[" .. new_link_text .. "]]"
-          local new_line, count =
-            match.line:gsub(vim.pesc(full_match_to_replace), new_link_markup, 1)
+        -- Call the new all-in-one function to perform the format-aware replacement.
+        local new_line, count = _find_and_replace_link_markup(match.line, new_relative_path)
 
-          if count > 0 then
-            if not files_to_update[match.file] then
-              files_to_update[match.file] = {}
-            end
-            files_to_update[match.file][match.lnum] = new_line
+        if count > 0 then
+          if not files_to_update[match.file] then
+            files_to_update[match.file] = {}
           end
+          files_to_update[match.file][match.lnum] = new_line
         end
-      else
-        vim.notify(
-          "not matched: old " .. old_abs_path .. "; resolved_link_path: " .. resolved_link_path
-        )
       end
     end
   end
 
   for file_path, changes in pairs(files_to_update) do
-    -- Using pcall for safety when reading/writing multiple files
     local read_ok, lines = pcall(vim.fn.readfile, file_path)
     if read_ok then
       for lnum, new_line in pairs(changes) do
-        -- vim.fn.readfile returns a 1-indexed table of lines
         lines[lnum] = new_line
         table.insert(
           changes_for_qf,
@@ -762,7 +774,7 @@ wiki_action.rename_wiki_page = function()
       -- Using bdelete! to avoid prompts if the buffer is modified
       vim.cmd("bdelete! " .. old_bufnr)
     end
-    wiki_action.open_file(new_full_path)
+    vim.cmd("checktime")
     vim.notify("Page renamed to " .. new_filename, vim.log.levels.INFO, { title = "neowiki" })
   end)
 end
