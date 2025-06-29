@@ -236,7 +236,7 @@ wiki.cleanup_broken_links = function()
   }
   for _, info in ipairs(broken_links_info) do
     -- Truncate long lines for a cleaner prompt.
-    local display_line = info.line
+    local display_line = info.text
     if #display_line > 70 then
       display_line = display_line:sub(1, 67) .. "..."
     end

@@ -265,20 +265,20 @@ util.is_web_link = function(target)
   return target:match("^%a+://") or target:match("^www%.")
 end
 
----
 -- Populates the quickfix list with the provided broken link information and opens it.
--- @param broken_links_info (table) A list of objects, each with an `lnum` and `line`.
+-- @param broken_links_info (table) A list of objects, each with `filename`, `lnum` and `text`
 --
-util.populate_quickfix_list = function(quickfix_info)
-  local qf_list = {}
-  -- Get the filename of the current buffer to make quickfix entries jumpable.
-  local filename = vim.api.nvim_buf_get_name(0)
+util.populate_quickfix_list = function(quickfix_info, title)
+  if not quickfix_info or #quickfix_info == 0 then
+    return
+  end
 
+  local qf_list = {}
   for _, info in ipairs(quickfix_info) do
     table.insert(qf_list, {
-      filename = filename,
+      filename = info.filename, -- FIX: Use the filename from the info object.
       lnum = info.lnum,
-      text = info.line,
+      text = info.text, -- FIX: Use the correct 'text' field.
     })
   end
 
@@ -287,11 +287,10 @@ util.populate_quickfix_list = function(quickfix_info)
     vim.fn.setqflist(qf_list)
     -- Open the quickfix window to display the list.
     vim.cmd("copen")
-    vim.notify(
-      #qf_list .. " broken link(s) added to quickfix list.",
-      vim.log.levels.INFO,
-      { title = "neowiki" }
-    )
+
+    -- Use the provided title or a sensible default.
+    local notification_message = title or (#qf_list .. " item(s) added to quickfix list.")
+    vim.notify(notification_message, vim.log.levels.INFO, { title = "neowiki" })
   end
 end
 
