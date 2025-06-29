@@ -184,7 +184,7 @@ util.normalize_path_for_comparison = function(path)
   if not path then
     return ""
   end
-  return path:lower():gsub("\\", "/"):gsub("//", "/")
+  return normalize_path(path):lower()
 end
 
 ---
