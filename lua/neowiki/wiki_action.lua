@@ -654,10 +654,65 @@ local function _update_verified_links(old_abs_path, new_full_path, backlink_cand
 end
 
 ---
--- Handles the core logic of renaming a page based on the link under the cursor
--- and updating all its backlinks.
+-- Finds and updates all backlinks for a renamed file and reports results to the quickfix list.
+-- This is a self-contained function to be called after a successful rename.
+-- @param ultimate_wiki_root (string) The top-level wiki directory to search within.
+-- @param old_filename (string) The original filename (e.g., "old_page.md").
+-- @param old_abs_path (string) The original absolute path to the file.
+-- @param new_full_path (string) The new absolute path to the file.
+--
+local function update_backlinks_and_report(
+  ultimate_wiki_root,
+  old_filename,
+  old_abs_path,
+  new_full_path
+)
+  -- Find backlink candidates using rg or fallback to buffer search.
+  local search_term = vim.fn.fnamemodify(old_filename, ":r")
+  local backlink_candidates = finder.find_backlinks(ultimate_wiki_root, search_term)
+
+  if not backlink_candidates then
+    vim.notify(
+      "rg not found or no backlinks detected globally. Falling back to current buffer search.",
+      vim.log.levels.INFO,
+      { title = "neowiki" }
+    )
+    backlink_candidates = {}
+    local current_buf_path = vim.api.nvim_buf_get_name(0)
+    local all_lines = vim.api.nvim_buf_get_lines(0, 0, -1, false)
+    for i, l in ipairs(all_lines) do
+      if l:find(search_term, 1, true) then
+        table.insert(backlink_candidates, {
+          file = current_buf_path,
+          lnum = i,
+          text = l,
+        })
+      end
+    end
+  end
+
+  -- Verify candidates and replace links.
+  local changes_for_qf = _update_verified_links(old_abs_path, new_full_path, backlink_candidates)
+
+  -- Populate and open the quickfix list with the results.
+  if #changes_for_qf > 0 then
+    util.populate_quickfix_list(changes_for_qf, "Updated Backlinks")
+    vim.notify(
+      "Updated " .. #changes_for_qf .. " backlink(s). See quickfix list for details.",
+      vim.log.levels.INFO,
+      { title = "neowiki" }
+    )
+  else
+    vim.notify("No backlinks were updated.", vim.log.levels.INFO, { title = "neowiki" })
+  end
+end
+
+---
+-- Handles the core logic of renaming a page and then optionally updating all its backlinks.
+-- The file is renamed immediately, and the user is then prompted to confirm the backlink search.
+--
 wiki_action.rename_wiki_page = function()
-  -- Step 1: Check for ultimate_wiki_root and if the cursor is on a link.
+  -- Step 1: Check for ultimate_wiki_root and if we are in a valid context.
   local ultimate_wiki_root = vim.b[0].ultimate_wiki_root
   if not ultimate_wiki_root then
     vim.notify(
@@ -672,17 +727,16 @@ wiki_action.rename_wiki_page = function()
   local line = vim.api.nvim_get_current_line()
   local old_link_target = wiki_action.process_link(cursor, line)
 
-  if not old_link_target then
-    vim.notify("Cursor is not on a valid wiki link.", vim.log.levels.INFO, { title = "neowiki" })
+  if not old_link_target or util.is_web_link(old_link_target) then
+    vim.notify(
+      "Cursor is not on a valid wiki link or it is a web link.",
+      vim.log.levels.INFO,
+      { title = "neowiki" }
+    )
     return
   end
 
-  if util.is_web_link(old_link_target) then
-    vim.notify("Cannot rename a web link.", vim.log.levels.INFO, { title = "neowiki" })
-    return
-  end
-
-  -- Step 2: Resolve the link to an absolute path.
+  -- Step 2: Resolve the link to an absolute path and perform validations.
   local current_dir = vim.fn.fnamemodify(vim.api.nvim_buf_get_name(0), ":p:h")
   local old_abs_path = vim.fs.joinpath(current_dir, old_link_target)
 
@@ -722,62 +776,23 @@ wiki_action.rename_wiki_page = function()
     end
     local new_full_path = vim.fs.joinpath(vim.fn.fnamemodify(old_abs_path, ":h"), new_filename)
 
-    -- Step 4: Find backlink candidates using rg.
-    local search_term = vim.fn.fnamemodify(old_filename, ":r")
-    local backlink_candidates = finder.find_backlinks(ultimate_wiki_root, search_term)
-
-    if not backlink_candidates then
-      -- Step 4.1: Fallback to searching only the current buffer if rg fails.
-      vim.notify(
-        "rg not found or no backlinks detected globally. Falling back to current buffer search.",
-        vim.log.levels.INFO,
-        { title = "neowiki" }
-      )
-      backlink_candidates = {}
-      local current_buf_path = vim.api.nvim_buf_get_name(0)
-      local all_lines = vim.api.nvim_buf_get_lines(0, 0, -1, false)
-      for i, l in ipairs(all_lines) do
-        if l:find(search_term, 1, true) then
-          table.insert(backlink_candidates, {
-            file = current_buf_path,
-            lnum = i,
-            text = l,
-          })
-        end
-      end
-    end
-
-    -- Perform the actual file system rename BEFORE updating links.
+    -- Step 4: Perform the file system rename.
     local rename_ok, rename_err = pcall(vim.fn.rename, old_abs_path, new_full_path)
     if not rename_ok then
       vim.notify("Error renaming file: " .. rename_err, vim.log.levels.ERROR, { title = "neowiki" })
       return
     end
 
-    -- Step 5 & 6: Verify candidates and replace links.
-    local changes_for_qf = _update_verified_links(old_abs_path, new_full_path, backlink_candidates)
+      -- Step 5: ix broken links using `rg` fallback to within page search
+    vim.notify("Page renamed to " .. new_filename, vim.log.levels.INFO, { title = "neowiki" })
+    update_backlinks_and_report(ultimate_wiki_root, old_filename, old_abs_path, new_full_path)
 
-    -- Step 8: Populate and open the quickfix list.
-    if #changes_for_qf > 0 then
-      util.populate_quickfix_list(changes_for_qf)
-      vim.notify(
-        "Updated " .. #changes_for_qf .. " backlink(s). See quickfix list for details.",
-        vim.log.levels.INFO,
-        { title = "neowiki" }
-      )
-    else
-      vim.notify("No backlinks were updated.", vim.log.levels.INFO, { title = "neowiki" })
-    end
-
-    -- Manage buffers: close the old file if it's open and open the new one
-    -- This helps if the user renames a link to a file that isn't the current buffer
+    -- Manage buffers: close the old file buffer and reload filetree state.
     local old_bufnr = vim.fn.bufnr(old_abs_path)
     if old_bufnr ~= -1 then
-      -- Using bdelete! to avoid prompts if the buffer is modified
       vim.cmd("bdelete! " .. old_bufnr)
     end
     vim.cmd("checktime")
-    vim.notify("Page renamed to " .. new_filename, vim.log.levels.INFO, { title = "neowiki" })
   end)
 end
 return wiki_action
