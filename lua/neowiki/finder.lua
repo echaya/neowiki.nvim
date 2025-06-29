@@ -299,7 +299,7 @@ finder.find_backlinks = function(search_path, target_filename)
 
     if file_path and lnum_str and line_content then
       -- for debug
-      vim.notify(file_path .. " " .. lnum_str .. " " .. line_content)
+      -- vim.notify(file_path .. " " .. lnum_str .. " " .. line_content)
       table.insert(matches, {
         file = file_path,
         lnum = tonumber(lnum_str),

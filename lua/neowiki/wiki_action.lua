@@ -724,7 +724,8 @@ wiki_action.rename_wiki_page = function()
     local new_full_path = vim.fs.joinpath(vim.fn.fnamemodify(old_abs_path, ":h"), new_filename)
 
     -- Step 4: Find backlink candidates using rg.
-    local backlink_candidates = finder.find_backlinks(ultimate_wiki_root, old_filename)
+    local search_term = vim.fn.fnamemodify(old_filename, ":r")
+    local backlink_candidates = finder.find_backlinks(ultimate_wiki_root, search_term)
 
     if not backlink_candidates then
       -- Step 4.1: Fallback to searching only the current buffer if rg fails.
@@ -737,11 +738,13 @@ wiki_action.rename_wiki_page = function()
       local current_buf_path = vim.api.nvim_buf_get_name(0)
       local all_lines = vim.api.nvim_buf_get_lines(0, 0, -1, false)
       for i, l in ipairs(all_lines) do
-        table.insert(backlink_candidates, {
-          file = current_buf_path,
-          lnum = i,
-          line = l,
-        })
+        if l:find(search_term, 1, true) then
+          table.insert(backlink_candidates, {
+            file = current_buf_path,
+            lnum = i,
+            line = l,
+          })
+        end
       end
     end
 
