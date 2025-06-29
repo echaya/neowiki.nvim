@@ -264,15 +264,16 @@ finder.find_backlinks = function(search_path, target_filename)
   local fname_no_ext = vim.fn.fnamemodify(target_filename, ":t:r")
   local fname_pattern = fname_no_ext:gsub("([%(%)%.%+%[%]])", "\\%1"):gsub("/", "[\\/]")
 
-  local wikilink_part_prefix = [=[\[\[[^\]]*]=]
-  local wikilink_part_suffix = [=[[^\]]*\]\]]=]
-  local wikilink_part = wikilink_part_prefix .. fname_pattern .. wikilink_part_suffix
+  local ext = state.markdown_extension -- e.g., ".md"
+  local ext_pattern = ext:gsub("%.", "\\.") -- Turns ".md" into "\.md"
 
-  local mdlink_part_prefix = [=[\[[^\]]+\]\([^)]*]=]
-  local mdlink_part_suffix = [=[[^)]*\)]]=]
-  local mdlink_part = mdlink_part_prefix .. fname_pattern .. mdlink_part_suffix
-
+  local strict_target_content = "(?:[\\w./\\\\]*)" .. fname_pattern .. "(?:" .. ext_pattern .. ")?"
+  local wikilink_format = "\\[\\[%s\\]\\]"
+  local mdlink_format = "\\[[^\\]]+\\]\\(%s\\)"
+  local wikilink_part = string.format(wikilink_format, strict_target_content)
+  local mdlink_part = string.format(mdlink_format, strict_target_content)
   local pattern = wikilink_part .. "|" .. mdlink_part
+
   local command = {
     "rg",
     "--vimgrep",
