@@ -158,7 +158,8 @@ util.normalize_path_for_comparison = function(path)
   if not path then
     return ""
   end
-  return path:lower():gsub("\\", "/"):gsub("//", "/")
+  local resolved_path = vim.fn.fnamemodify(path, ":p")
+  return resolved_path:lower():gsub("\\", "/"):gsub("//", "/")
 end
 
 ---
