@@ -1,4 +1,5 @@
 local util = {}
+local is_windows = vim.fn.has("win32") == 1
 
 ---
 -- Recursively merges two tables. Values in `override` take precedence.
@@ -35,44 +36,60 @@ util.filter_list = function(list, predicate)
   return result
 end
 
----
--- Calculates the relative path from a starting directory to a target file path.
--- @param from_dir (string) The absolute path of the source directory.
--- @param to_path (string) The absolute path of the target file.
--- @return (string) The calculated relative path using forward slashes.
---
-util.get_relative_path = function(from_dir, to_path)
-  -- Step 1: Normalize paths to be absolute and use forward slashes.
-  local from_abs = vim.fn.fnamemodify(from_dir, ":p"):gsub("\\", "/")
-  local to_abs = vim.fn.fnamemodify(to_path, ":p"):gsub("\\", "/")
-  from_abs = from_abs:gsub("/+", "/")
-  to_abs = to_abs:gsub("/+", "/")
+--- Normalizes a given path for reliable comparison.
+-- @param path (string) The file or directory path.
+-- @return (string) A clean, absolute path using forward slashes.
+local normalize_path = function(path)
+  -- 1. Get the absolute path.
+  local abs_path = vim.fn.fnamemodify(path, ":p")
+  -- 2. Standardize to forward slashes.
+  abs_path = abs_path:gsub("\\", "/")
+  -- 3. Collapse any multiple slashes into a single one (e.g., "a//b" -> "a/b").
+  --    This is critical to prevent empty strings when splitting the path.
+  abs_path = abs_path:gsub("//+", "/")
+  -- 4. Remove any trailing slash to ensure consistency before splitting.
+  return abs_path:gsub("/$", "")
+end
 
-  -- Remove trailing slashes to ensure consistent splitting.
-  from_abs = from_abs:gsub("/$", "")
-  to_abs = to_abs:gsub("/$", "")
+--- Calculates the relative path from a source directory to a target file/directory.
+-- @param from_path (string) The absolute or relative path of the source. Can be a directory or a file.
+-- @param to_path (string) The absolute or relative path of the target file or directory.
+-- @return (string) The relative path from `from_path` to `to_path`.
+function util.get_relative_path(from_path, to_path)
+  -- Step 1: Determine the correct base directory from `from_path`.
+  local from_base_path
+  -- Check if the provided 'from_path' is a directory.
+  if vim.fn.isdirectory(from_path) == 1 then
+    -- If it's a directory, use it directly.
+    from_base_path = from_path
+  else
+    -- If it's a file, get its containing directory using ':h'.
+    from_base_path = vim.fn.fnamemodify(from_path, ":h")
+  end
 
-  local from_parts = vim.split(from_abs, "/")
+  -- Normalize both paths.
+  local from_dir = normalize_path(from_base_path)
+  local to_abs = normalize_path(to_path)
+
+  local from_parts = vim.split(from_dir, "/")
   local to_parts = vim.split(to_abs, "/")
 
-  -- On Windows, if the drives are different, a relative path is impossible.
+  -- On Windows, if the drives are different, a relative path is not possible.
   if
-    vim.fn.has("win32") == 1
-    and #from_parts > 0
-    and #to_parts > 0
+    is_windows
+    and from_parts[1]
+    and to_parts[1]
     and from_parts[1]:lower() ~= to_parts[1]:lower()
   then
-    return to_abs -- Return the absolute path as a fallback.
+    return to_abs -- Fallback to the absolute path of the target.
   end
 
   -- Step 2: Find the last common directory in the paths.
   local common_base_idx = 0
-  -- We compare directories, so the loop limit is the shorter of the two directory paths.
-  local min_len = math.min(#from_parts, #to_parts - 1)
-  for i = 1, min_len do
-    -- Perform case-insensitive comparison on Windows.
-    local part_from = vim.fn.has("win32") == 1 and from_parts[i]:lower() or from_parts[i]
-    local part_to = vim.fn.has("win32") == 1 and to_parts[i]:lower() or to_parts[i]
+  local max_common_len = math.min(#from_parts, #to_parts)
+  for i = 1, max_common_len do
+    local part_from = is_windows and from_parts[i]:lower() or from_parts[i]
+    local part_to = is_windows and to_parts[i]:lower() or to_parts[i]
 
     if part_from ~= part_to then
       break
@@ -82,31 +99,24 @@ util.get_relative_path = function(from_dir, to_path)
 
   local rel_parts = {}
 
-  -- Step 3: For each remaining directory in `from_parts`, add a '..'
-  local up_levels = #from_parts - common_base_idx
-  for _ = 1, up_levels do
+  -- Step 3: For each directory we need to move up from `from_dir`, add '..'.
+  for _ = common_base_idx + 1, #from_parts do
     table.insert(rel_parts, "..")
   end
 
-  -- Step 4: Add the remaining parts of the `to_path`.
+  -- Step 4: Add the remaining parts of the `to_path` to navigate to the target.
   for i = common_base_idx + 1, #to_parts do
     table.insert(rel_parts, to_parts[i])
   end
 
-  -- If the resulting path is empty, it means the target is in the same directory.
-  -- In this case, the relative path is just the filename.
+  -- If paths resolve to the same directory, the relative path is './'.
   if #rel_parts == 0 then
-    -- This handles cases where from_dir and to_path point to the same directory.
-    if #to_parts > #from_parts then
-      table.insert(rel_parts, to_parts[#to_parts])
-    else
-      table.insert(rel_parts, ".")
-    end
+    return "./"
   end
 
   local final_path = table.concat(rel_parts, "/")
 
-  -- Prepend "./" for explicit relative links unless it already starts with '../' or './'
+  -- Prepend "./" if the path doesn't already indicate it's relative.
   if not final_path:match("^%.%.?/") then
     final_path = "./" .. final_path
   end
@@ -118,7 +128,6 @@ util.get_relative_path = function(from_dir, to_path)
 
   return final_path
 end
-
 ---
 -- Sorts a list of wiki path objects by path length, descending.
 -- This ensures that more specific (deeper) paths are matched first.

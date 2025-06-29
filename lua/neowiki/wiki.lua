@@ -43,9 +43,18 @@ end
 --
 wiki.follow_link = function(open_cmd)
   local active_wiki_path = vim.b[vim.api.nvim_get_current_buf()].active_wiki_path
-  if not active_wiki_path then
-    vim.notify("no active wiki path is set")
-    return
+  local active_path
+  local buf_path = vim.api.nvim_buf_get_name(0)
+  if buf_path and buf_path ~= "" then
+    active_path = vim.fn.fnamemodify(buf_path, ":h")
+  end
+
+  if not active_path or not active_wiki_path then
+    vim.notify(
+      "Current buffer is not associated with a file.",
+      vim.log.levels.WARN,
+      { title = "neowiki" }
+    )
   end
 
   local cursor = vim.api.nvim_win_get_cursor(0)
@@ -59,10 +68,9 @@ wiki.follow_link = function(open_cmd)
       return
     end
 
-    if filename:sub(1, 2) == "./" then
-      filename = filename:sub(2, -1)
-    end
-    local full_path = vim.fs.joinpath(active_wiki_path, filename)
+    local joined_path = vim.fs.joinpath(active_path, filename)
+    local full_path = vim.fn.resolve(joined_path)
+
     -- reuse the current floating window to open the new link.
     if util.is_float() and not open_cmd then
       local bn_to_open = vim.fn.bufnr(full_path, true)
