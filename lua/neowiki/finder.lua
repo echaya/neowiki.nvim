@@ -264,7 +264,7 @@ finder.find_backlinks = function(search_path, target_filename)
   local fname_no_ext = vim.fn.fnamemodify(target_filename, ":t:r")
   local fname_pattern = fname_no_ext:gsub("([%(%)%.%+%[%]])", "\\%1"):gsub("/", "[\\/]")
 
-  local ext = state.markdown_extension -- e.g., ".md"
+  local ext = state.markdown_extension or ".md"
   local ext_pattern = ext:gsub("%.", "\\.") -- Turns ".md" into "\.md"
 
   local strict_target_content = "(?:[\\w./\\\\]*)" .. fname_pattern .. "(?:" .. ext_pattern .. ")?"
