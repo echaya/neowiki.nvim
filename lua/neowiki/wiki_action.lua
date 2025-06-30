@@ -414,6 +414,7 @@ end
 -- @return (string|nil): The processed link target, otherwise nil.
 --
 wiki_action.process_link = function(cursor, line)
+    -- Todo to remove fake cursor position
   local col = cursor and (cursor[2] + 1) or -1 -- Use -1 to signify ignoring the cursor position
 
   -- 1. Search for standard markdown links: [text](target)
@@ -859,7 +860,6 @@ end
 -- Determines the context (on a link or not) and dispatches to the core logic.
 --
 wiki_action.rename_wiki_page = function()
-
   local cursor = vim.api.nvim_win_get_cursor(0)
   local line = vim.api.nvim_get_current_line()
   local old_link_target = wiki_action.process_link(cursor, line)
