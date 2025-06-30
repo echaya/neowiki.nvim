@@ -859,9 +859,6 @@ end
 -- Determines the context (on a link or not) and dispatches to the core logic.
 --
 wiki_action.rename_wiki_page = function()
-  if not wiki_action.check_in_neowiki() then
-    return
-  end
 
   local cursor = vim.api.nvim_win_get_cursor(0)
   local line = vim.api.nvim_get_current_line()
