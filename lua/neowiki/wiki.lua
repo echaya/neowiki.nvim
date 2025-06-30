@@ -102,47 +102,41 @@ end
 
 ---
 -- Creates a new wiki page from the visual selection, replacing the selection with a link.
--- Then opens the new page. If the new page is config.index_file, its parent directory
--- is registered as a new wiki root.
+-- This function handles the buffer text manipulation and delegates the file system
+-- operations to wiki_action.create_page_from_filename.
 -- @param open_cmd (string|nil): Optional command for opening the new file.
 --
 wiki.create_or_open_wiki_file = function(open_cmd)
-  local selection_start = vim.fn.getpos("'<")
-  local selection_end = vim.fn.getpos("'>")
-  local line = vim.fn.getline(selection_start[2], selection_end[2])
-  local name = line[1]:sub(selection_start[3], selection_end[3])
-
-  local filename = name:gsub(" ", "_"):gsub("[\\?%%*:|'\"<>]", "") .. state.markdown_extension
-  local filename_link = "[" .. name .. "](" .. "./" .. filename .. ")"
-  local newline = line[1]:sub(0, selection_start[3] - 1)
-    .. filename_link
-    .. line[1]:sub(selection_end[3] + 1, string.len(line[1]))
-  vim.api.nvim_set_current_line(newline)
-
-  local active_wiki_path = vim.b[vim.api.nvim_get_current_buf()].active_wiki_path
-  if not active_wiki_path then
-    vim.notify("no active wiki path is set")
+  if not wiki_action.check_in_neowiki() then
     return
   end
-  local full_path = vim.fs.joinpath(active_wiki_path, filename)
-  local dir_path = vim.fn.fnamemodify(full_path, ":h")
-
-  if vim.fn.fnamemodify(filename, ":t") == config.index_file then
-    wiki_action.add_wiki_root(dir_path)
+  local selection_start_pos = vim.fn.getpos("'<")
+  local selection_end_pos = vim.fn.getpos("'>")
+  local start_row = selection_start_pos[2] - 1
+  local start_col = selection_start_pos[3] - 1
+  local end_row = selection_end_pos[2] - 1
+  local end_col = selection_end_pos[3]
+  local end_line_content = vim.api.nvim_buf_get_lines(0, end_row, end_row + 1, false)[1] or ""
+  if end_col > #end_line_content then
+    start_col = 0
+    end_col = #end_line_content
+  end
+  local selected_lines = vim.api.nvim_buf_get_text(0, start_row, start_col, end_row, end_col, {})
+  local link_display_text = ((selected_lines[1] or ""):match("^%s*(.-)%s*$"))
+  if link_display_text == "" then
+    vim.notify(
+      "No text selected on the first line; cannot create link.",
+      vim.log.levels.WARN,
+      { title = "neowiki" }
+    )
+    return
   end
 
-  util.ensure_path_exists(dir_path)
-  if vim.fn.filereadable(full_path) == 0 then
-    local ok, err = pcall(function()
-      local file = assert(io.open(full_path, "w"), "Failed to open file for writing.")
-      file:close()
-    end)
-    if not ok then
-      vim.notify("Error creating file: " .. err, vim.log.levels.ERROR, { title = "neowiki" })
-      return
-    end
-  end
-  wiki_action.open_file(full_path, open_cmd)
+  local filename = link_display_text:gsub(" ", "_"):gsub("[\\?%%*:|'\"<>]", "")
+    .. state.markdown_extension
+  local filename_link = "[" .. link_display_text .. "](" .. "./" .. filename .. ")"
+  vim.api.nvim_buf_set_text(0, start_row, start_col, end_row, end_col, { filename_link })
+  wiki_action.create_page_from_filename(filename, open_cmd)
 end
 
 ---

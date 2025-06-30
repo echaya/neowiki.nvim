@@ -221,6 +221,50 @@ local _open_file_in_float = function(buffer_number)
 end
 
 ---
+-- Creates a new wiki page file on disk, opens it, and handles registering
+-- new wiki roots if an index file is created.
+-- @param filename (string): The name of the file to create (e.g., "new_page.md").
+-- @param open_cmd (string|nil): Optional command for opening the new file.
+--
+wiki_action.create_page_from_filename = function(filename, open_cmd)
+  -- Get the context from the current buffer's variables.
+  local current_buf_nr = vim.api.nvim_get_current_buf()
+  local active_wiki_path = vim.b[current_buf_nr].active_wiki_path
+
+  if not active_wiki_path then
+    vim.notify(
+      "Could not determine active wiki path. Action aborted.",
+      vim.log.levels.ERROR,
+      { title = "neowiki" }
+    )
+    return
+  end
+
+  local full_path = util.join_path(active_wiki_path, filename)
+  local dir_path = vim.fn.fnamemodify(full_path, ":h")
+
+  -- If the new file is an index file, register its directory as a new nested wiki root.
+  if vim.fn.fnamemodify(filename, ":t") == config.index_file then
+    wiki_action.add_wiki_root(dir_path)
+  end
+
+  util.ensure_path_exists(dir_path)
+  if vim.fn.filereadable(full_path) == 0 then
+    local ok, err = pcall(function()
+      local file = assert(io.open(full_path, "w"), "Failed to open file for writing.")
+      file:close()
+    end)
+    if not ok then
+      vim.notify("Error creating file: " .. err, vim.log.levels.ERROR, { title = "neowiki" })
+      return
+    end
+  end
+
+  -- Use the existing open_file action to handle opening in different ways.
+  wiki_action.open_file(full_path, open_cmd)
+end
+
+---
 -- Displays a `vim.ui.select` prompt for the user to choose a wiki.
 -- @param wiki_dirs (table): A list of configured wiki directory objects.
 -- @param on_complete (function): Callback to execute with the selected wiki path.
