@@ -161,44 +161,12 @@ end
 -- root config.index_file and then triggers a cleanup of broken links.
 --
 wiki.delete_wiki = function()
-  local root = vim.b[0].wiki_root
-  if not root or root == "" then
-    vim.notify("Not a wiki file.", vim.log.levels.WARN, { title = "neowiki" })
+  -- Pre-check to ensure we are in a valid wiki context.
+  if not wiki_action.check_in_neowiki() then
     return
   end
-
-  local file_path = vim.api.nvim_buf_get_name(0)
-  local file_name = vim.fn.fnamemodify(file_path, ":t")
-
-  -- Prevent deletion of the main config.index_file.
-  if file_name == config.index_file then
-    vim.notify(
-      "Cannot delete the root config.index_file.",
-      vim.log.levels.ERROR,
-      { title = "neowiki" }
-    )
-    return
-  end
-
-  local choice = vim.fn.confirm('Permanently delete "' .. file_name .. '"?', "&Yes\n&No")
-  if choice == 1 then
-    local ok, err = pcall(os.remove, file_path)
-
-    if ok then
-      vim.notify('Deleted "' .. file_name .. '"', vim.log.levels.INFO, { title = "neowiki" })
-      vim.cmd("bdelete! " .. vim.fn.bufnr("%"))
-      wiki.jump_to_index()
-
-      -- Schedule broken link cleanup to run after jumping to the index.
-      vim.schedule(function()
-        wiki.cleanup_broken_links()
-      end)
-    else
-      vim.notify("Error deleting file: " .. err, vim.log.levels.ERROR, { title = "neowiki" })
-    end
-  else
-    vim.notify("Delete operation canceled.", vim.log.levels.INFO, { title = "neowiki" })
-  end
+  -- Delegate the complex logic to the wiki_action module.
+  wiki_action.delete_wiki_page()
 end
 
 ---
