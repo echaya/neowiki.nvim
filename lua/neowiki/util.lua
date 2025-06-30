@@ -286,7 +286,9 @@ util.populate_quickfix_list = function(quickfix_info, title)
     -- Set the quickfix list with our findings.
     vim.fn.setqflist(qf_list)
     -- Open the quickfix window to display the list.
-    vim.cmd("copen")
+    vim.schedule(function()
+      vim.cmd("copen")
+    end)
 
     -- Use the provided title or a sensible default.
     local notification_message = title or (#qf_list .. " item(s) added to quickfix list.")
