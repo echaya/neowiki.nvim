@@ -171,11 +171,7 @@ wiki.delete_wiki = function()
   local file_name = vim.fn.fnamemodify(file_path, ":t")
 
   -- Prevent deletion of the main config.index_file.
-  local normalized_root_index_path =
-    util.normalize_path_for_comparison(vim.fs.joinpath(root, config.index_file))
-  local normalized_file_path =
-    util.normalize_path_for_comparison(vim.fn.fnamemodify(file_path, ":p"))
-  if normalized_root_index_path == normalized_file_path then
+  if file_name == config.index_file then
     vim.notify(
       "Cannot delete the root config.index_file.",
       vim.log.levels.ERROR,
