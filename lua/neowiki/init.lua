@@ -3,7 +3,6 @@ local util = require("neowiki.util")
 local finder = require("neowiki.finder")
 local wiki = require("neowiki.wiki")
 local state = require("neowiki.state")
-local wiki_action = require("neowiki.wiki_action")
 
 local M = {}
 local markdown_patterns = {

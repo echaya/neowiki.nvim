@@ -5,6 +5,19 @@ local state = require("neowiki.state")
 
 local wiki_action = {}
 
+wiki_action.check_in_neowiki = function()
+  if not vim.b[0] or not vim.b[0].wiki_root then
+    vim.notify(
+      "Not inside a neowiki wiki. Action aborted!",
+      vim.log.levels.WARN,
+      { title = "neowiki" }
+    )
+    return false
+  else
+    return true
+  end
+end
+
 ---
 -- Creates buffer-local keymaps for the current wiki file.
 -- These keymaps are defined in the user's configuration.

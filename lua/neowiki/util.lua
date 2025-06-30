@@ -365,4 +365,14 @@ util.replace_in_file = function(file_path, replacements)
   return true
 end
 
+--- Joins a base path and a filename and resolves it to a full, canonical path.
+--
+-- @param file_path string The base path (e.g., a directory). Can be relative or absolute.
+-- @param filename string The name of the file or sub-directory to append.
+-- @return string The absolute, canonical path to the resulting file or directory.
+--
+util.join_path = function(file_path, filename)
+  local joined_path = vim.fs.joinpath(file_path, filename)
+  return vim.fn.resolve(joined_path)
+end
 return util

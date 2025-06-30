@@ -232,7 +232,8 @@ finder.find_broken_links_in_buffer = function()
     for _, target in ipairs(link_targets) do
       -- Ignore external URLs when checking for broken file links.
       if not util.is_web_link(target) then
-        local full_target_path = vim.fn.fnamemodify(vim.fs.joinpath(current_dir, target), ":p")
+        local full_target_path = util.join_path(current_dir, target)
+        full_target_path = vim.fn.fnamemodify(full_target_path, ":p")
         -- A link is considered broken if the target file isn't readable.
         if vim.fn.filereadable(full_target_path) == 0 then
           has_broken_link_on_line = true
