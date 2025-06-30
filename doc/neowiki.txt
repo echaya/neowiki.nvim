@@ -9,11 +9,11 @@ CONTENTS                                      *neowiki-contents*
 1. Introduction...............................|neowiki-introduction|
 2. Features...................................|neowiki-features|
 3. Installation...............................|neowiki-installation|
-4. Setup......................................|neowiki-setup|
-5. Configuration..............................|neowiki-configuration|
-6. Mappings...................................|neowiki-mappings|
-7. API........................................|neowiki-api|
-
+4. External Dependencies......................|neowiki-dependencies|
+5. Setup......................................|neowiki-setup|
+6. Configuration..............................|neowiki-configuration|
+7. Mappings...................................|neowiki-mappings|
+8. API........................................|neowiki-api|
 ==============================================================================
 
 1. Introduction                               *neowiki-introduction*
@@ -21,38 +21,31 @@ CONTENTS                                      *neowiki-contents*
 neowiki.nvim is a lightweight, first-class Neovim citizen with Lua finesse,
 offering a minimal, intuitive workflow out of the box for note-taking and
 Getting Things Done (GTD).
-
 ==============================================================================
 
 2. Features                                   *neowiki-features*
 
 - _Flexible Wiki Opening_
-  Open wikis your way — in the current buffer, a new tab, or a sleek floating window 
+  Open wikis your way — in the current buffer, a new tab, or a sleek floating window
   for distraction-free note-taking.
-
 - *Seamless Linking & Navigation*
-  Create and track markdown links with <CR>, split with <S-CR> or <C-CR>. 
+  Create and track markdown links with <CR>, split with <S-CR> or <C-CR>.
   Navigate smoothly with <Tab>/<S-Tab> and <BS>.
-
 - *Smart GTD*
   Toggle tasks with <leader>wt ([ ] to [x]), see nested progress updated in real-time.
-
 - *Multi-Wiki & Nested Support*
   Manage multiple wikis (e.g., work, personal) and nested index.md with ease.
-
-- _Wiki Management_
-  Delete pages with <leader>wd and clean broken links with built-in tools.
-
+- _Advanced Wiki Management_
+  Rename pages with <leader>wr (updating all backlinks), delete with <leader>wd,
+  insert links with <leader>wi, and clean broken links with <leader>wc.
 - _Neovim Native_
-  Harness Neovim 0.10+ with Lua speed, integrating seamlessly with Treesitter, 
+  Harness Neovim 0.10+ with Lua speed, integrating seamlessly with Treesitter,
   markdown rendering, completion, pickers, and your setup out of the box.
-
 ==============================================================================
 
 3. Installation                               *neowiki-installation*
 
 This plugin requires Neovim >= 0.10.
-
 Using lazy.nvim:
 >lua
 {
@@ -89,11 +82,36 @@ lua vim.keymap.set("n", "<leader>wT", require("neowiki").open_wiki_new_tab, { de
 
 ==============================================================================
 
-4. Setup                                      *neowiki-setup*
+4. External Dependencies                      *neowiki-dependencies*
+
+neowiki.nvim is designed to be fast and efficient by leveraging modern command-line
+tools for file searching. While these dependencies are optional, installing them
+is highly recommended for the best performance and to enable all features.
+
+If none of the following tools are found in your PATH, neowiki.nvim will
+automatically use a slower, native Lua-based search method to get the job
+done.
+
+- *ripgrep* (`rg`)
+  The primary search tool used by the plugin. It is used for finding
+  wiki pages and nested roots. It is **required** for the global backlink search
+  feature used when renaming pages. Without `rg`, backlink updates after
+  a rename will fall back to searching only within the current open file.
+
+- *fd*
+  A fast alternative for finding files. It is used if `rg` is not available to
+  list wiki-pages for insertion
+
+- *git*
+  If `rg` and `fd` are not found, neowiki.nvim can use `git ls-files` to
+  find wiki-pages within a git repository, which is still very fast.
+
+==============================================================================
+
+5. Setup                                      *neowiki-setup*
 
 If you are not using a plugin manager that supports the `opts` table (like
 lazy.nvim), you must call the `setup()` function manually.
-
 >lua
   require('neowiki').setup({
     -- Your configuration options go here.
@@ -103,12 +121,11 @@ lazy.nvim), you must call the `setup()` function manually.
 
 ==============================================================================
 
-5. Configuration                              *neowiki-configuration*
+6. Configuration                              *neowiki-configuration*
 
 The `setup` function accepts a table to customize the plugin's behavior.
 Below are the default settings. You only need to pass the options you wish
 to override.
-
 Default values:
 >lua
 require("neowiki").setup({
@@ -130,6 +147,9 @@ require("neowiki").setup({
     jump_to_index = "<BS>",
     delete_page = "<leader>wd",
     cleanup_links = "<leader>wc",
+    insert_link = "<leader>wi",
+    rename_page = "<leader>wr",
+    close_float = "q",
   },
 
   -- Configuration for the GTD functionality.
@@ -158,7 +178,7 @@ require("neowiki").setup({
 
 ==============================================================================
 
-6. Mappings                                   *neowiki-mappings*
+7. Mappings                                   *neowiki-mappings*
 
 Default Key Mappings
 --------------------
@@ -180,14 +200,15 @@ for any action in the `keymaps` table of your setup configuration.
 | Visual   | `<leader>wt`      | Toggle task status for selection    |
 | Normal   | `<leader>wd`      | Delete the current wiki page        |
 | Normal   | `<leader>wc`      | Clean up broken links in file       |
-
+| Normal   | `<leader>wi`      | Find and insert a link to a page    |
+| Normal   | `<leader>wr`      | Rename page linked under cursor     |
+| Normal   | `q`               | Close the floating window           |
 ==============================================================================
 
-7. API                                        *neowiki-api*
+8. API                                        *neowiki-api*
 
 The following functions are exposed in the main `neowiki` module and can be
 used for custom mappings or scripts.
-
 ------------------------------------------------------------------------------
 *neowiki.open_wiki({name})*
 
@@ -198,7 +219,6 @@ Opens the index page of a wiki.
 - If `{name}` (string) is provided, it will attempt to open the wiki with the
   matching name from your configuration.
 - If only a single wiki is configured, it will open it directly.
-
 Usage:
 >lua
   -- Mapped to a key, will prompt if needed
@@ -213,7 +233,6 @@ Usage:
 
 Same as |neowiki.open_wiki()|, but opens the wiki's index page in a new
 tab.
-
 Usage:
 >lua
   vim.keymap.set('n', '<leader>wT', "<cmd>lua require('neowiki').open_wiki_new_tab()<cr>")
@@ -224,7 +243,6 @@ Usage:
 
 Same as |neowiki.open_wiki()|, but opens the wiki's index page in a floating
 window.
-
 Usage:
 >lua
   vim.keymap.set('n', '<leader>wW', "<cmd>lua require('neowiki').open_wiki_floating()<cr>")
