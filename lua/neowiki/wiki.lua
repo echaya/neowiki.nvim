@@ -42,19 +42,13 @@ end
 -- @param open_cmd (string|nil): Optional command for opening the file (e.g., 'vsplit').
 --
 wiki.follow_link = function(open_cmd)
-  local active_wiki_path = vim.b[vim.api.nvim_get_current_buf()].active_wiki_path
+  if not wiki_action.check_in_neowiki() then
+    return
+  end
   local active_path
   local buf_path = vim.api.nvim_buf_get_name(0)
   if buf_path and buf_path ~= "" then
     active_path = vim.fn.fnamemodify(buf_path, ":h")
-  end
-
-  if not active_path or not active_wiki_path then
-    vim.notify(
-      "Current buffer is not associated with a file.",
-      vim.log.levels.WARN,
-      { title = "neowiki" }
-    )
   end
 
   local cursor = vim.api.nvim_win_get_cursor(0)
@@ -68,8 +62,7 @@ wiki.follow_link = function(open_cmd)
       return
     end
 
-    local joined_path = vim.fs.joinpath(active_path, filename)
-    local full_path = vim.fn.resolve(joined_path)
+    local full_path = util.join_path(active_path, filename)
 
     -- reuse the current floating window to open the new link.
     if util.is_float() and not open_cmd then
@@ -158,7 +151,7 @@ end
 wiki.jump_to_index = function()
   local root = vim.b[0].wiki_root
   if root and root ~= "" then
-    local index_path = vim.fs.joinpath(root, config.index_file)
+    local index_path = util.join_path(root, config.index_file)
     wiki_action.open_file(index_path)
   else
     vim.notify(
@@ -262,20 +255,13 @@ end
 -- It uses a prompt from wiki_action to select the page.
 --
 wiki.insert_wiki_link = function()
-  local search_root = vim.b[0].ultimate_wiki_root
-  if not search_root or search_root == "" then
-    vim.notify(
-      "Not inside a neowiki wiki. Cannot insert link.",
-      vim.log.levels.WARN,
-      { title = "neowiki" }
-    )
+  if not wiki_action.check_in_neowiki() then
     return
   end
 
+  local search_root = vim.b[0].ultimate_wiki_root
   local current_buf_path = vim.api.nvim_buf_get_name(0)
 
-  -- This callback function contains the logic to execute once a page has been selected.
-  -- It is passed to the wiki_action prompt.
   local function on_page_select(selected_path)
     if not selected_path then
       return -- Operation was cancelled by the user.
@@ -297,12 +283,7 @@ end
 
 wiki.rename_wiki_page = function()
   -- Pre-check to ensure we are in a valid wiki context.
-  if not vim.b[0] or not vim.b[0].wiki_root then
-    vim.notify(
-      "Not inside a neowiki wiki. Cannot rename page.",
-      vim.log.levels.WARN,
-      { title = "neowiki" }
-    )
+  if not wiki_action.check_in_neowiki() then
     return
   end
   wiki_action.rename_wiki_page()
