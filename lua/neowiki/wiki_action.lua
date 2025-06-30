@@ -414,7 +414,7 @@ end
 -- @return (string|nil): The processed link target, otherwise nil.
 --
 wiki_action.process_link = function(cursor, line)
-    -- Todo to remove fake cursor position
+  -- Todo to remove fake cursor position
   local col = cursor and (cursor[2] + 1) or -1 -- Use -1 to signify ignoring the cursor position
 
   -- 1. Search for standard markdown links: [text](target)
@@ -624,8 +624,47 @@ wiki_action.remove_lines_with_broken_links = function(broken_links_info)
   })
 end
 
--- Finds the first link on a line and replaces it with a new one,
--- intelligently preserving the original link's format.
+---
+-- Prompts the user to select a target file for an action (rename/delete).
+-- It contextually asks whether to act on the linked file or the current file.
+-- @param action_verb (string) The verb to use in the prompt (e.g., "Rename", "Delete").
+-- @param callback (function) The function to call with the chosen file path.
+local function _prompt_for_action_target(action_verb, callback)
+  local cursor = vim.api.nvim_win_get_cursor(0)
+  local line = vim.api.nvim_get_current_line()
+  local link_target = wiki_action.process_link(cursor, line)
+  local current_buf_path = vim.api.nvim_buf_get_name(0)
+
+  if link_target and not util.is_web_link(link_target) then
+    local current_dir = vim.fn.fnamemodify(current_buf_path, ":p:h")
+    local linked_file_path = util.join_path(current_dir, link_target)
+    local linked_filename = vim.fn.fnamemodify(linked_file_path, ":t")
+    local current_filename = vim.fn.fnamemodify(current_buf_path, ":t")
+
+    local prompt = string.format(
+      "%s linked file ('%s') or current file ('%s')?",
+      action_verb,
+      linked_filename,
+      current_filename
+    )
+    -- Use '&' for hotkeys. Ensure verb is capitalized.
+    local choice = vim.fn.confirm(prompt, "&Linked File\n&Current File\n&Cancel")
+
+    if choice == 1 then
+      callback(linked_file_path)
+    elseif choice == 2 then
+      callback(current_buf_path)
+    else
+      vim.notify(action_verb .. " operation canceled.", vim.log.levels.INFO, { title = "neowiki" })
+    end
+  else
+    -- If not on a link, act on the current file by default.
+    callback(current_buf_path)
+  end
+end
+
+---
+-- Finds the first markdown or wikilink on a line and replaces it.
 -- @param line (string) The line containing the link to replace.
 -- @param new_target_path (string) The new relative path for the link's target.
 -- @return (string, number) The modified line and the count of replacements.
@@ -636,9 +675,7 @@ local function _find_and_replace_link_markup(line, new_target_path)
   local link_text, old_target_part = line:match(md_pattern)
 
   if link_text and old_target_part then
-    -- It's a markdown link. We preserve the `link_text` part.
     local old_full_markup = link_text .. old_target_part
-    -- And create a new markup with the new path.
     local new_full_markup = link_text .. "(" .. new_target_path .. ")"
     return line:gsub(vim.pesc(old_full_markup), new_full_markup, 1)
   end
@@ -648,22 +685,52 @@ local function _find_and_replace_link_markup(line, new_target_path)
   local old_full_markup = line:match(wiki_pattern)
 
   if old_full_markup then
-    -- It's a wikilink. We create a new one, removing the file extension for the text.
     local new_link_text = vim.fn.fnamemodify(new_target_path, ":r")
     local new_full_markup = "[[" .. new_link_text .. "]]"
     return line:gsub(vim.pesc(old_full_markup), new_full_markup, 1)
   end
 
-  -- 3. If no link of either type was found, return the original line.
   return line, 0
 end
 
 ---
--- Processes a list of backlink candidates, verifies them, and updates the files.
--- This version now uses the new, smarter replacement helper function.
-local function _update_verified_links(old_abs_path, new_full_path, backlink_candidates)
+-- Finds the first markdown or wikilink on a line and removes it.
+-- @param line (string) The line containing the link to remove.
+-- @return (string, number) The modified line and the count of removals.
+-- Todo to refactor with find and replace?
+local function _find_and_remove_link_markup(line)
+  -- Logic from our previous refactor...
+  local md_pattern = "(%[.-%]%((.-)%))"
+  local full_md_markup = line:match(md_pattern)
+  if full_md_markup then
+    return line:gsub(vim.pesc(full_md_markup), "", 1)
+  end
+
+  local wiki_pattern = "(%[%[.-%]%])"
+  local full_wiki_markup = line:match(wiki_pattern)
+  if full_wiki_markup then
+    return line:gsub(vim.pesc(full_wiki_markup), "", 1)
+  end
+
+  return line, 0
+end
+
+---
+-- Generic backlink processor that verifies links and applies a transformation.
+-- @param old_abs_path (string) The absolute path of the file that was changed.
+-- @param line_transformer (function) A function to apply to each verified backlink line.
+--   It receives `(line_content, file_dir, old_abs_path)` and should return the modified line.
+-- @return (table) A list of changes suitable for the quickfix list.
+local function _process_backlinks(old_abs_path, line_transformer)
   local changes_for_qf = {}
-  local files_to_update = {} -- Group changes by file to minimize I/O
+  local files_to_update = {}
+  local ultimate_wiki_root = vim.b[0].ultimate_wiki_root
+  local old_filename = vim.fn.fnamemodify(old_abs_path, ":t:r")
+  local backlink_candidates = finder.find_backlinks(ultimate_wiki_root, old_filename)
+
+  if not backlink_candidates or #backlink_candidates == 0 then
+    return nil -- Indicate that rg failed or found nothing.
+  end
 
   for _, match in ipairs(backlink_candidates) do
     local temp_cursor = { match.lnum, 0 }
@@ -671,19 +738,14 @@ local function _update_verified_links(old_abs_path, new_full_path, backlink_cand
 
     if processed_target and not util.is_web_link(processed_target) then
       local match_dir = vim.fn.fnamemodify(match.file, ":p:h")
-      local resolved_link_path =
-        vim.fn.fnamemodify(vim.fs.joinpath(match_dir, processed_target), ":p")
+      local resolved_link_path = util.join_path(match_dir, processed_target)
 
       if
         util.normalize_path_for_comparison(resolved_link_path)
         == util.normalize_path_for_comparison(old_abs_path)
       then
-        -- If verified, calculate the new relative path for the target file.
-        local new_relative_path = util.get_relative_path(match_dir, new_full_path)
-
-        -- Call the new all-in-one function to perform the format-aware replacement.
-        local new_line, count = _find_and_replace_link_markup(match.text, new_relative_path)
-
+        -- If verified, apply the specific transformation (rename or delete).
+        local new_line, count = line_transformer(match.text, match_dir, old_abs_path)
         if count > 0 then
           if not files_to_update[match.file] then
             files_to_update[match.file] = {}
@@ -712,313 +774,9 @@ local function _update_verified_links(old_abs_path, new_full_path, backlink_cand
 end
 
 ---
--- Finds and updates all backlinks for a renamed file and reports results to the quickfix list.
--- This is a self-contained function to be called after a successful rename.
--- @param wiki_root (string) The immediate wiki root for fallback search.
--- @param ultimate_wiki_root (string) The top-level wiki directory to search within.
--- @param old_filename (string) The original filename (e.g., "old_page.md").
--- @param old_abs_path (string) The original absolute path to the file.
--- @param new_full_path (string) The new absolute path to the file.
---
-local function update_backlinks_and_report(
-  wiki_root,
-  ultimate_wiki_root,
-  old_filename,
-  old_abs_path,
-  new_full_path
-)
-  -- Find backlink candidates using rg.
-  local search_term = vim.fn.fnamemodify(old_filename, ":r")
-  local backlink_candidates = finder.find_backlinks(ultimate_wiki_root, search_term)
-
-  if not backlink_candidates then
-    vim.notify(
-      "rg not found. Falling back to searching the immediate index.md file.",
-      vim.log.levels.INFO,
-      { title = "neowiki" }
-    )
-    backlink_candidates = {}
-    -- Construct the path to the immediate index file.
-    local index_file_path = vim.fs.joinpath(wiki_root, config.index_file)
-
-    -- Check if the index file is readable.
-    if vim.fn.filereadable(index_file_path) == 1 then
-      local all_lines = vim.fn.readfile(index_file_path)
-      for i, line in ipairs(all_lines) do
-        -- If a line contains the search term, add it to the candidates.
-        if line:find(search_term, 1, true) then
-          table.insert(backlink_candidates, {
-            file = index_file_path,
-            lnum = i,
-            text = line,
-          })
-        end
-      end
-    else
-      vim.notify(
-        "Could not read index file for backlink search: " .. index_file_path,
-        vim.log.levels.WARN,
-        { title = "neowiki" }
-      )
-    end
-  end
-
-  -- Verify candidates and replace links.
-  local changes_for_qf = _update_verified_links(old_abs_path, new_full_path, backlink_candidates)
-
-  -- Populate and open the quickfix list with the results.
-  if #changes_for_qf > 0 then
-    util.populate_quickfix_list(changes_for_qf, "Updated Backlinks")
-    vim.notify(
-      "Updated " .. #changes_for_qf .. " backlink(s). See quickfix list for details.",
-      vim.log.levels.INFO,
-      { title = "neowiki" }
-    )
-  else
-    vim.notify("No backlinks were updated.", vim.log.levels.INFO, { title = "neowiki" })
-  end
-end
-
----
--- This function is called by the main rename_wiki_page action.
--- @param old_abs_path (string) The absolute path of the file to rename.
--- @param is_current_file_rename (boolean) Flag to determine if we need to load the new file.
---
-local function _execute_rename_logic(old_abs_path, is_current_file_rename)
-  local wiki_root = vim.b[0].wiki_root
-  local ultimate_wiki_root = vim.b[0].ultimate_wiki_root
-
-  if vim.fn.filereadable(old_abs_path) == 0 then
-    vim.notify("File does not exist: " .. old_abs_path, vim.log.levels.ERROR, { title = "neowiki" })
-    return
-  end
-
-  local old_filename = vim.fn.fnamemodify(old_abs_path, ":t")
-  if old_filename == config.index_file then
-    vim.notify("Renaming an index file is not allowed.", vim.log.levels.WARN, { title = "neowiki" })
-    return
-  end
-
-  vim.ui.input({
-    prompt = "Enter new page name:",
-    default = old_filename,
-    completion = "file",
-  }, function(input)
-    local new_filename = input
-    if vim.fn.fnamemodify(new_filename, ":e") == "" then
-      new_filename = new_filename .. state.markdown_extension
-    end
-    if not input or input == "" or new_filename == old_filename then
-      vim.notify("Rename cancelled or name unchanged.", vim.log.levels.INFO, { title = "neowiki" })
-      return
-    end
-
-    local new_full_path = vim.fs.joinpath(vim.fn.fnamemodify(old_abs_path, ":h"), new_filename)
-
-    local prompt =
-      string.format("Rename '%s' to '%s' and update all backlinks?", old_filename, new_filename)
-    local choice = vim.fn.confirm(prompt, "&Yes\n&No")
-
-    if choice == 1 then
-      local rename_ok, rename_err = pcall(vim.fn.rename, old_abs_path, new_full_path)
-      if not rename_ok then
-        vim.notify(
-          "Error renaming file: " .. rename_err,
-          vim.log.levels.ERROR,
-          { title = "neowiki" }
-        )
-        return
-      end
-
-      vim.notify("Page renamed to " .. new_filename, vim.log.levels.INFO, { title = "neowiki" })
-      update_backlinks_and_report(
-        wiki_root,
-        ultimate_wiki_root,
-        old_filename,
-        old_abs_path,
-        new_full_path
-      )
-
-      local old_bufnr = vim.fn.bufnr(old_abs_path)
-      if old_bufnr ~= -1 then
-        vim.cmd("bdelete! " .. old_bufnr)
-      end
-
-      if is_current_file_rename then
-        -- Todo check window for edit, use open_cmd?
-        vim.cmd("edit " .. vim.fn.fnameescape(new_full_path))
-      end
-
-      vim.cmd("checktime")
-    else
-      vim.notify("Rename operation canceled.", vim.log.levels.INFO, { title = "neowiki" })
-    end
-  end)
-end
-
----
--- Determines the context (on a link or not) and dispatches to the core logic.
---
-wiki_action.rename_wiki_page = function()
-  local cursor = vim.api.nvim_win_get_cursor(0)
-  local line = vim.api.nvim_get_current_line()
-  local old_link_target = wiki_action.process_link(cursor, line)
-  local current_buf_path = vim.api.nvim_buf_get_name(0)
-  local current_dir = vim.fn.fnamemodify(current_buf_path, ":p:h")
-
-  -- Context: Cursor is on a link.
-  if old_link_target and not util.is_web_link(old_link_target) then
-    local linked_file_path = vim.fs.joinpath(current_dir, old_link_target)
-    local linked_filename = vim.fn.fnamemodify(linked_file_path, ":t")
-    local current_filename = vim.fn.fnamemodify(current_buf_path, ":t")
-
-    local prompt = string.format(
-      "Rename linked file ('%s') or current file ('%s')?",
-      linked_filename,
-      current_filename
-    )
-    local choice = vim.fn.confirm(prompt, "&Linked File\n&Current File\n&Cancel")
-
-    if choice == 1 then -- Rename Linked File
-      _execute_rename_logic(linked_file_path, false)
-    elseif choice == 2 then -- Rename Current File
-      _execute_rename_logic(current_buf_path, true)
-    else -- Cancel
-      vim.notify("Rename operation canceled.", vim.log.levels.INFO, { title = "neowiki" })
-    end
-  else
-    -- Context: Cursor is not on a link, so default to renaming the current file.
-    _execute_rename_logic(current_buf_path, true)
-  end
-end
-
----
--- Finds the first markdown or wikilink on a line and removes it.
--- @param line (string) The line containing the link to remove.
--- @return (string, number) The modified line and the count of removals.
-local function _find_and_remove_link_markup(line)
-  -- 1. Try to find and remove a standard markdown link: [text](target)
-  local md_pattern = "(%[.-%]%((.-)%))"
-  local full_md_markup = line:match(md_pattern)
-
-  if full_md_markup then
-    return line:gsub(vim.pesc(full_md_markup), "", 1)
-  end
-
-  -- 2. If no markdown link, try a wikilink: [[target]]
-  local wiki_pattern = "(%[%[.-%]%])"
-  local full_wiki_markup = line:match(wiki_pattern)
-
-  if full_wiki_markup then
-    return line:gsub(vim.pesc(full_wiki_markup), "", 1)
-  end
-
-  -- 3. If no link was found, return the original line.
-  return line, 0
-end
-
----
--- Verifies backlink candidates and removes links pointing to the deleted file.
--- @param deleted_abs_path (string) The absolute path of the file that was deleted.
--- @param backlink_candidates (table) The list of potential backlink matches from rg.
--- @return (table) A list of changes suitable for the quickfix list.
-local function _verify_and_remove_links(deleted_abs_path, backlink_candidates)
-  local changes_for_qf = {}
-  local files_to_update = {} -- Group changes by file to minimize I/O
-
-  for _, match in ipairs(backlink_candidates) do
-    -- Use a temporary cursor at the start of the line to find the first link
-    local temp_cursor = { match.lnum, 0 }
-    local processed_target = wiki_action.process_link(temp_cursor, match.text)
-
-    if processed_target and not util.is_web_link(processed_target) then
-      local match_dir = vim.fn.fnamemodify(match.file, ":p:h")
-      local resolved_link_path =
-        vim.fn.fnamemodify(util.join_path(match_dir, processed_target), ":p")
-
-      if
-        util.normalize_path_for_comparison(resolved_link_path)
-        == util.normalize_path_for_comparison(deleted_abs_path)
-      then
-        -- If verified, remove the link markup from the line.
-        local new_line, count = _find_and_remove_link_markup(match.text)
-
-        if count > 0 then
-          if not files_to_update[match.file] then
-            files_to_update[match.file] = {}
-          end
-          files_to_update[match.file][match.lnum] = new_line
-        end
-      end
-    end
-  end
-
-  -- Atomically read/write changes for each file.
-  for file_path, changes in pairs(files_to_update) do
-    local read_ok, lines = pcall(vim.fn.readfile, file_path)
-    if read_ok then
-      for lnum, new_line in pairs(changes) do
-        table.insert(
-          changes_for_qf,
-          { filename = file_path, lnum = lnum, text = "Removed link: " .. lines[lnum] }
-        )
-        lines[lnum] = new_line
-      end
-      pcall(vim.fn.writefile, lines, file_path)
-    end
-  end
-
-  return changes_for_qf
-end
-
----
--- Manages the post-deletion cleanup process for backlinks.
--- @param wiki_root (string) The immediate wiki root for fallback navigation.
--- @param deleted_filename (string) The original filename (e.g., "old_page.md").
--- @param deleted_abs_path (string) The original absolute path to the file.
-local function _cleanup_backlinks_and_report(wiki_root, deleted_filename, deleted_abs_path)
-  -- Find backlink candidates using rg.
-  local search_term = vim.fn.fnamemodify(deleted_filename, ":r")
-  local backlink_candidates = finder.find_backlinks(wiki_root, search_term)
-
-  -- Scenario 1: rg is available and found potential backlinks.
-  if backlink_candidates and #backlink_candidates > 0 then
-    local changes_for_qf = _verify_and_remove_links(deleted_abs_path, backlink_candidates)
-
-    if #changes_for_qf > 0 then
-      util.populate_quickfix_list(changes_for_qf, "Removed Backlinks")
-      vim.notify(
-        "Removed " .. #changes_for_qf .. " backlink(s). See quickfix list for details.",
-        vim.log.levels.INFO,
-        { title = "neowiki" }
-      )
-    else
-      vim.notify("No backlinks found to remove.", vim.log.levels.INFO, { title = "neowiki" })
-    end
-    -- After cleanup, navigate to the index.
-    require("neowiki.wiki").jump_to_index()
-    return
-  end
-
-  -- Scenario 2: Fallback when rg is not available or finds nothing.
-  vim.notify(
-    "rg not found or no backlinks detected. Switching to fallback cleanup.",
-    vim.log.levels.INFO,
-    { title = "neowiki" }
-  )
-  -- First, navigate to the index page as per the requirement.
-  require("neowiki.wiki").jump_to_index()
-  -- Then, run the broken link cleanup on the newly opened index file.
-  vim.schedule(function()
-    require("neowiki.wiki").cleanup_broken_links()
-  end)
-end
-
----
 -- Executes the core logic for deleting a file and initiating cleanup.
 -- @param path_to_delete (string) The absolute path of the file to delete.
 local function _execute_delete_logic(path_to_delete)
-  local ultimate_wiki_root = vim.b[0].ultimate_wiki_root
   if vim.fn.filereadable(path_to_delete) == 0 then
     vim.notify(
       "File does not exist: " .. path_to_delete,
@@ -1035,64 +793,156 @@ local function _execute_delete_logic(path_to_delete)
   end
 
   local prompt = string.format("Permanently delete '%s' and clean up all backlinks?", filename)
-  local choice = vim.fn.confirm(prompt, "&Yes\n&No")
-
-  if choice == 1 then
-    local delete_ok, delete_err = pcall(os.remove, path_to_delete)
-    if not delete_ok then
-      vim.notify("Error deleting file: " .. delete_err, vim.log.levels.ERROR, { title = "neowiki" })
-      return
-    end
-
-    vim.notify("Page deleted: " .. filename, vim.log.levels.INFO, { title = "neowiki" })
-
-    -- Clean up buffer if it's open
-    local bufnr = vim.fn.bufnr(path_to_delete)
-    if bufnr ~= -1 then
-      vim.cmd("bdelete! " .. bufnr)
-    end
-
-    -- Initiate the backlink cleanup process
-    _cleanup_backlinks_and_report(ultimate_wiki_root, filename, path_to_delete)
-  else
+  if vim.fn.confirm(prompt, "&Yes\n&No") ~= 1 then
     vim.notify("Delete operation canceled.", vim.log.levels.INFO, { title = "neowiki" })
+    return
+  end
+
+  local delete_ok, delete_err = pcall(os.remove, path_to_delete)
+  if not delete_ok then
+    vim.notify("Error deleting file: " .. delete_err, vim.log.levels.ERROR, { title = "neowiki" })
+    return
+  end
+
+  vim.notify("Page deleted: " .. filename, vim.log.levels.INFO, { title = "neowiki" })
+  -- TODO to add a delete buffer util?
+  local bufnr = vim.fn.bufnr(path_to_delete)
+  if bufnr ~= -1 then
+    vim.cmd("bdelete! " .. bufnr)
+  end
+
+  -- Define the "delete" transformation for backlinks.
+  local delete_transformer = function(line_content, _, _)
+    return _find_and_remove_link_markup(line_content)
+  end
+
+  local changes_for_qf = _process_backlinks(path_to_delete, delete_transformer)
+
+  if changes_for_qf then -- `_process_backlinks` was successful (rg ran).
+    if #changes_for_qf > 0 then
+      util.populate_quickfix_list(changes_for_qf, "Removed Backlinks")
+      vim.notify(
+        "Removed " .. #changes_for_qf .. " backlink(s). See quickfix list.",
+        vim.log.levels.INFO,
+        { title = "neowiki" }
+      )
+    else
+      vim.notify("No backlinks found to remove.", vim.log.levels.INFO, { title = "neowiki" })
+    end
+    require("neowiki.wiki").jump_to_index()
+  else -- Fallback scenario.
+    vim.notify(
+      "rg not found or no backlinks detected. Switching to fallback cleanup.",
+      vim.log.levels.INFO,
+      { title = "neowiki" }
+    )
+    require("neowiki.wiki").jump_to_index()
+    vim.schedule(function()
+      require("neowiki.wiki").cleanup_broken_links()
+    end)
   end
 end
 
 ---
--- Main entry point for the delete action. Determines context and dispatches.
--- This function should be required and called by the `wiki.delete_wiki` function.
+-- Entry point for deleting a wiki page.
 wiki_action.delete_wiki_page = function()
-  local cursor = vim.api.nvim_win_get_cursor(0)
-  local line = vim.api.nvim_get_current_line()
-  local link_target = wiki_action.process_link(cursor, line)
-  local current_buf_path = vim.api.nvim_buf_get_name(0)
+  _prompt_for_action_target("Delete", _execute_delete_logic)
+end
 
-  -- Context: Cursor is on a link.
-  if link_target and not util.is_web_link(link_target) then
-    local current_dir = vim.fn.fnamemodify(current_buf_path, ":p:h")
-    local linked_file_path = vim.fs.joinpath(current_dir, link_target)
-    local linked_filename = vim.fn.fnamemodify(linked_file_path, ":t")
-    local current_filename = vim.fn.fnamemodify(current_buf_path, ":t")
-
-    local prompt = string.format(
-      "Delete linked file ('%s') or current file ('%s')?",
-      linked_filename,
-      current_filename
-    )
-    local choice = vim.fn.confirm(prompt, "&Linked File\n&Current File\n&Cancel")
-
-    if choice == 1 then -- Delete Linked File
-      _execute_delete_logic(linked_file_path)
-    elseif choice == 2 then -- Delete Current File
-      _execute_delete_logic(current_buf_path)
-    else -- Cancel
-      vim.notify("Delete operation canceled.", vim.log.levels.INFO, { title = "neowiki" })
-    end
-  else
-    -- Context: Cursor is not on a link, so default to deleting the current file.
-    _execute_delete_logic(current_buf_path)
+---
+-- This function is called by the main rename_wiki_page action.
+-- @param old_abs_path (string) The absolute path of the file to rename.
+local function _execute_rename_logic(old_abs_path)
+  if vim.fn.filereadable(old_abs_path) == 0 then
+    vim.notify("File does not exist: " .. old_abs_path, vim.log.levels.ERROR, { title = "neowiki" })
+    return
   end
+
+  local old_filename = vim.fn.fnamemodify(old_abs_path, ":t")
+  if old_filename == config.index_file then
+    vim.notify("Renaming an index file is not allowed.", vim.log.levels.WARN, { title = "neowiki" })
+    return
+  end
+
+  vim.ui.input(
+    { prompt = "Enter new page name:", default = old_filename, completion = "file" },
+    function(input)
+      if not input or input == "" then
+        vim.notify("Rename cancelled.", vim.log.levels.INFO, { title = "neowiki" })
+        return
+      end
+
+      local new_filename = (vim.fn.fnamemodify(input, ":e") == "")
+          and (input .. state.markdown_extension)
+        or input
+      if new_filename == old_filename then
+        vim.notify("Name unchanged. Rename cancelled.", vim.log.levels.INFO, { title = "neowiki" })
+        return
+      end
+
+      local new_full_path = util.join_path(vim.fn.fnamemodify(old_abs_path, ":h"), new_filename)
+      -- TODO check if there existing file with the same name. effectively override that file, send warning
+      local prompt =
+        string.format("Rename '%s' to '%s' and update all backlinks?", old_filename, new_filename)
+      if vim.fn.confirm(prompt, "&Yes\n&No") ~= 1 then
+        vim.notify("Rename operation canceled.", vim.log.levels.INFO, { title = "neowiki" })
+        return
+      end
+
+      local rename_ok, rename_err = pcall(vim.fn.rename, old_abs_path, new_full_path)
+      if not rename_ok then
+        vim.notify(
+          "Error renaming file: " .. rename_err,
+          vim.log.levels.ERROR,
+          { title = "neowiki" }
+        )
+        return
+      end
+
+      vim.notify("Page renamed to " .. new_filename, vim.log.levels.INFO, { title = "neowiki" })
+      local old_bufnr = vim.fn.bufnr(old_abs_path)
+      if old_bufnr ~= -1 then
+        vim.cmd("bdelete! " .. old_bufnr)
+      end
+
+      -- Define the "rename" transformation for backlinks.
+      local rename_transformer = function(line_content, file_dir, _)
+        local new_relative_path = util.get_relative_path(file_dir, new_full_path)
+        return _find_and_replace_link_markup(line_content, new_relative_path)
+      end
+
+      local changes_for_qf = _process_backlinks(old_abs_path, rename_transformer)
+
+      if changes_for_qf and #changes_for_qf > 0 then
+        util.populate_quickfix_list(changes_for_qf, "Updated Backlinks")
+        vim.notify(
+          "Updated " .. #changes_for_qf .. " backlink(s). See quickfix list.",
+          vim.log.levels.INFO,
+          { title = "neowiki" }
+        )
+      else
+        vim.notify("No backlinks were updated.", vim.log.levels.INFO, { title = "neowiki" })
+      end
+
+      -- Open the newly renamed file if we were editing it.
+      if
+        util.normalize_path_for_comparison(old_abs_path)
+        == util.normalize_path_for_comparison(vim.api.nvim_buf_get_name(0))
+      then
+        vim.cmd("edit " .. vim.fn.fnameescape(new_full_path))
+      end
+      vim.cmd("checktime")
+    end
+  )
+end
+
+---
+-- Determines the context (on a link or not) and dispatches to the core logic.
+wiki_action.rename_wiki_page = function()
+  if not wiki_action.check_in_neowiki() then
+    return
+  end
+  _prompt_for_action_target("Rename", _execute_rename_logic)
 end
 
 return wiki_action
