@@ -36,6 +36,13 @@ util.filter_list = function(list, predicate)
   return result
 end
 
+util.delete_target_buffer = function(abs_path)
+  local old_bufnr = vim.fn.bufnr(abs_path)
+  if old_bufnr ~= -1 then
+    vim.cmd("bdelete! " .. old_bufnr)
+  end
+end
+
 --- Normalizes a given path for reliable comparison.
 -- @param path (string) The file or directory path.
 -- @return (string) A clean, absolute path using forward slashes.
