@@ -913,8 +913,14 @@ local function _execute_rename_logic(old_abs_path)
       end
 
       local ultimate_wiki_root = vim.b[0].ultimate_wiki_root
+      local wiki_root = vim.b[0].wiki_root
+      local target_filename = vim.fn.fnamemodify(old_abs_path, ":t:r") --file name without the extension
       local backlink_candidates = finder.find_backlinks(ultimate_wiki_root, target_filename)
-      local changes_for_qf = _process_backlinks(old_abs_path, rename_transformer)
+      if not backlink_candidates then
+        backlink_candidates = finder.find_backlink_fallback(wiki_root, target_filename)
+      end
+      local changes_for_qf =
+        _process_backlinks(old_abs_path, backlink_candidates, rename_transformer)
 
       if changes_for_qf and #changes_for_qf > 0 then
         util.populate_quickfix_list(changes_for_qf, "Updated Backlinks")
