@@ -841,6 +841,7 @@ local function _execute_delete_logic(path_to_delete)
       require("neowiki.wiki").cleanup_broken_links()
     end)
   end
+  vim.cmd("checktime")
 end
 
 ---
