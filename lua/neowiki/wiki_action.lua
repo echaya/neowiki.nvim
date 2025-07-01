@@ -903,6 +903,9 @@ local function execute_rename_logic(old_abs_path, fallback_targets)
         return
       end
 
+      local was_current_buffer = util.normalize_path_for_comparison(old_abs_path)
+        == util.normalize_path_for_comparison(vim.api.nvim_buf_get_name(0))
+
       local rename_ok, rename_err = pcall(vim.fn.rename, old_abs_path, new_full_path)
       if not rename_ok then
         vim.notify(
@@ -947,10 +950,7 @@ local function execute_rename_logic(old_abs_path, fallback_targets)
       end
 
       -- Open the newly renamed file if we were editing it.
-      if
-        util.normalize_path_for_comparison(old_abs_path)
-        == util.normalize_path_for_comparison(vim.api.nvim_buf_get_name(0))
-      then
+      if was_current_buffer then
         vim.cmd("edit " .. vim.fn.fnameescape(new_full_path))
       end
       vim.cmd("checktime")
