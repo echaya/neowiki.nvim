@@ -900,6 +900,9 @@ local function _execute_rename_logic(old_abs_path)
         return
       end
 
+      -- save ultimate_wiki_root and wiki_root before bdelete
+      local ultimate_wiki_root = vim.b[0].ultimate_wiki_root
+      local wiki_root = vim.b[0].wiki_root
       vim.notify("Page renamed to " .. new_filename, vim.log.levels.INFO, { title = "neowiki" })
       local old_bufnr = vim.fn.bufnr(old_abs_path)
       if old_bufnr ~= -1 then
@@ -912,8 +915,6 @@ local function _execute_rename_logic(old_abs_path)
         return _find_and_replace_link_markup(line_content, new_relative_path)
       end
 
-      local ultimate_wiki_root = vim.b[0].ultimate_wiki_root
-      local wiki_root = vim.b[0].wiki_root
       local target_filename = vim.fn.fnamemodify(old_abs_path, ":t:r") --file name without the extension
       local backlink_candidates = finder.find_backlinks(ultimate_wiki_root, target_filename)
       if not backlink_candidates then
