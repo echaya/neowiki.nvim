@@ -656,14 +656,16 @@ local function prompt_for_action_target(action_verb, callback)
       local wiki_root, _ = finder.find_wiki_for_buffer(linked_file_path)
       if wiki_root then
         vim.notify("wiki_root check in action: " .. wiki_root)
-        fallback_targets[wiki_root] = true
+        local wiki_root_index_file = util.join_path(wiki_root, config.index_file)
+        fallback_targets[wiki_root_index_file] = true
       end
       callback(linked_file_path, fallback_targets)
     elseif choice == 2 then
       local wiki_root, _ = finder.find_wiki_for_buffer(current_buf_path)
       if wiki_root then
         vim.notify("wiki_root check in action: " .. wiki_root)
-        fallback_targets[wiki_root] = true
+        local wiki_root_index_file = util.join_path(wiki_root, config.index_file)
+        fallback_targets[wiki_root_index_file] = true
       end
       callback(current_buf_path, fallback_targets)
     else
@@ -674,7 +676,8 @@ local function prompt_for_action_target(action_verb, callback)
     local wiki_root, _ = finder.find_wiki_for_buffer(current_buf_path)
     if wiki_root then
       vim.notify("wiki_root check in action: " .. wiki_root)
-      fallback_targets[wiki_root] = true
+      local wiki_root_index_file = util.join_path(wiki_root, config.index_file)
+      fallback_targets[wiki_root_index_file] = true
     end
     callback(current_buf_path, fallback_targets)
   end
