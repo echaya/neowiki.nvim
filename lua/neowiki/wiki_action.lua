@@ -822,11 +822,7 @@ local function execute_delete_logic(path_to_delete, fallback_targets)
     == util.normalize_path_for_comparison(vim.api.nvim_buf_get_name(0))
 
   vim.notify("Page deleted: " .. filename, vim.log.levels.INFO, { title = "neowiki" })
-  -- TODO to add a delete buffer util?
-  local bufnr = vim.fn.bufnr(path_to_delete)
-  if bufnr ~= -1 then
-    vim.cmd("bdelete! " .. bufnr)
-  end
+  util.delete_target_buffer(path_to_delete)
 
   if was_current_buffer then
     local file_path, _ = next(fallback_targets)
@@ -923,10 +919,7 @@ local function execute_rename_logic(old_abs_path, fallback_targets)
       -- save ultimate_wiki_root and wiki_root before bdelete
       local ultimate_wiki_root = vim.b[0].ultimate_wiki_root
       vim.notify("Page renamed to " .. new_filename, vim.log.levels.INFO, { title = "neowiki" })
-      local old_bufnr = vim.fn.bufnr(old_abs_path)
-      if old_bufnr ~= -1 then
-        vim.cmd("bdelete! " .. old_bufnr)
-      end
+      util.delete_target_buffer(old_abs_path)
 
       -- Define the "rename" transformation for backlinks.
       local rename_transformer = function(line_content, file_dir, _)
