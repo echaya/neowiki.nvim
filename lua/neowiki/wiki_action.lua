@@ -629,7 +629,7 @@ end
 -- It contextually asks whether to act on the linked file or the current file.
 -- @param action_verb (string) The verb to use in the prompt (e.g., "Rename", "Delete").
 -- @param callback (function) The function to call with the chosen file path.
-local function _prompt_for_action_target(action_verb, callback)
+local function prompt_for_action_target(action_verb, callback)
   local cursor = vim.api.nvim_win_get_cursor(0)
   local line = vim.api.nvim_get_current_line()
   local link_target = wiki_action.process_link(cursor, line)
@@ -668,7 +668,7 @@ end
 -- @param line (string) The line containing the link to replace.
 -- @param new_target_path (string) The new relative path for the link's target.
 -- @return (string, number) The modified line and the count of replacements.
-local function _find_and_replace_link_markup(line, new_target_path)
+local function find_and_replace_link_markup(line, new_target_path)
   -- 1. First, try to find and replace a standard markdown link: [text](target)
   --    We capture the link text part and the target part separately.
   local md_pattern = "(%[.-%])(%(.-%))"
@@ -698,7 +698,7 @@ end
 -- @param line (string) The line containing the link to remove.
 -- @return (string, number) The modified line and the count of removals.
 -- Todo to refactor with find and replace?
-local function _find_and_remove_link_markup(line)
+local function find_and_remove_link_markup(line)
   -- Logic from our previous refactor...
   local md_pattern = "(%[.-%]%((.-)%))"
   local full_md_markup = line:match(md_pattern)
@@ -722,7 +722,7 @@ end
 -- @param line_transformer (function) A function to apply to each verified backlink line.
 --   It receives `(line_content, file_dir, old_abs_path)` and should return the modified line.
 -- @return (table) A list of changes suitable for the quickfix list.
-local function _process_backlinks(old_abs_path, backlink_candidates, line_transformer)
+local function process_backlinks(old_abs_path, backlink_candidates, line_transformer)
   if not backlink_candidates or #backlink_candidates == 0 then
     return nil -- Indicate that rg failed or found nothing.
   end
@@ -773,7 +773,7 @@ end
 ---
 -- Executes the core logic for deleting a file and initiating cleanup.
 -- @param path_to_delete (string) The absolute path of the file to delete.
-local function _execute_delete_logic(path_to_delete)
+local function execute_delete_logic(path_to_delete)
   if vim.fn.filereadable(path_to_delete) == 0 then
     vim.notify(
       "File does not exist: " .. path_to_delete,
@@ -810,13 +810,13 @@ local function _execute_delete_logic(path_to_delete)
 
   -- Define the "delete" transformation for backlinks.
   local delete_transformer = function(line_content, _, _)
-    return _find_and_remove_link_markup(line_content)
+    return find_and_remove_link_markup(line_content)
   end
 
   local ultimate_wiki_root = vim.b[0].ultimate_wiki_root
   local target_filename = vim.fn.fnamemodify(path_to_delete, ":t:r") --file name without the extension
   local backlink_candidates = finder.find_backlinks(ultimate_wiki_root, target_filename)
-  local changes_for_qf = _process_backlinks(path_to_delete, backlink_candidates, delete_transformer)
+  local changes_for_qf = process_backlinks(path_to_delete, backlink_candidates, delete_transformer)
 
   if changes_for_qf then -- `_process_backlinks` was successful (rg ran).
     if #changes_for_qf > 0 then
@@ -847,13 +847,13 @@ end
 ---
 -- Entry point for deleting a wiki page.
 wiki_action.delete_wiki_page = function()
-  _prompt_for_action_target("Delete", _execute_delete_logic)
+  prompt_for_action_target("Delete", execute_delete_logic)
 end
 
 ---
 -- This function is called by the main rename_wiki_page action.
 -- @param old_abs_path (string) The absolute path of the file to rename.
-local function _execute_rename_logic(old_abs_path)
+local function execute_rename_logic(old_abs_path)
   if vim.fn.filereadable(old_abs_path) == 0 then
     vim.notify("File does not exist: " .. old_abs_path, vim.log.levels.ERROR, { title = "neowiki" })
     return
@@ -900,6 +900,9 @@ local function _execute_rename_logic(old_abs_path)
         return
       end
 
+      -- save ultimate_wiki_root and wiki_root before bdelete
+      local ultimate_wiki_root = vim.b[0].ultimate_wiki_root
+      local wiki_root = vim.b[0].wiki_root
       vim.notify("Page renamed to " .. new_filename, vim.log.levels.INFO, { title = "neowiki" })
       local old_bufnr = vim.fn.bufnr(old_abs_path)
       if old_bufnr ~= -1 then
@@ -909,18 +912,16 @@ local function _execute_rename_logic(old_abs_path)
       -- Define the "rename" transformation for backlinks.
       local rename_transformer = function(line_content, file_dir, _)
         local new_relative_path = util.get_relative_path(file_dir, new_full_path)
-        return _find_and_replace_link_markup(line_content, new_relative_path)
+        return find_and_replace_link_markup(line_content, new_relative_path)
       end
 
-      local ultimate_wiki_root = vim.b[0].ultimate_wiki_root
-      local wiki_root = vim.b[0].wiki_root
       local target_filename = vim.fn.fnamemodify(old_abs_path, ":t:r") --file name without the extension
       local backlink_candidates = finder.find_backlinks(ultimate_wiki_root, target_filename)
       if not backlink_candidates then
         backlink_candidates = finder.find_backlink_fallback(wiki_root, target_filename)
       end
       local changes_for_qf =
-        _process_backlinks(old_abs_path, backlink_candidates, rename_transformer)
+        process_backlinks(old_abs_path, backlink_candidates, rename_transformer)
 
       if changes_for_qf and #changes_for_qf > 0 then
         util.populate_quickfix_list(changes_for_qf, "Updated Backlinks")
@@ -951,7 +952,7 @@ wiki_action.rename_wiki_page = function()
   if not wiki_action.check_in_neowiki() then
     return
   end
-  _prompt_for_action_target("Rename", _execute_rename_logic)
+  prompt_for_action_target("Rename", execute_rename_logic)
 end
 
 return wiki_action
