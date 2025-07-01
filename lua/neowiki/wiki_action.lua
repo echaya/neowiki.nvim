@@ -414,9 +414,7 @@ end
 -- @return (string|nil): The processed link target, otherwise nil.
 --
 wiki_action.process_link = function(cursor, line)
-  -- Todo to remove fake cursor position
-  local col = cursor and (cursor[2] + 1) or -1 -- Use -1 to signify ignoring the cursor position
-
+  local col = cursor[2] + 1
   -- 1. Search for standard markdown links: [text](target)
   do
     local md_pattern = "%[(.-)%]%(<?([^)>]+)>?%)"
@@ -427,12 +425,7 @@ wiki_action.process_link = function(cursor, line)
         break
       end
       search_pos = e + 1
-
-      if col ~= -1 then -- Cursor mode: check if cursor is within this link's bounds
-        if col >= s and col <= e then
-          return util.process_link_target(target, state.markdown_extension)
-        end
-      else -- Find first mode: return the first link we find
+      if col >= s and col <= e then
         return util.process_link_target(target, state.markdown_extension)
       end
     end
@@ -448,13 +441,7 @@ wiki_action.process_link = function(cursor, line)
         break
       end
       search_pos = e + 1
-
-      if col ~= -1 then -- Cursor mode
-        if col >= s and col <= e then
-          local processed = util.process_link_target(target, state.markdown_extension)
-          return processed and ("./" .. processed) or nil
-        end
-      else -- Find first mode
+      if col >= s and col <= e then
         local processed = util.process_link_target(target, state.markdown_extension)
         return processed and ("./" .. processed) or nil
       end
@@ -895,7 +882,6 @@ local function execute_rename_logic(old_abs_path, fallback_targets)
       end
 
       local new_full_path = util.join_path(vim.fn.fnamemodify(old_abs_path, ":h"), new_filename)
-      -- TODO check if there existing file with the same name. effectively override that file, send warning
       local prompt =
         string.format("Rename '%s' to '%s' and update all backlinks?", old_filename, new_filename)
       if vim.fn.confirm(prompt, "&Yes\n&No") ~= 1 then
