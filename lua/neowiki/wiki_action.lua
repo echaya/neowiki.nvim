@@ -621,7 +621,8 @@ local function prompt_for_action_target(action_verb, callback)
   local line = vim.api.nvim_get_current_line()
   local link_target = wiki_action.process_link(cursor, line)
   local current_buf_path = vim.api.nvim_buf_get_name(0)
-  local fallback_targets = {}
+  local path_to_action = nil
+  local additional_fallback = nil
 
   if link_target and not util.is_web_link(link_target) then
     local current_dir = vim.fn.fnamemodify(current_buf_path, ":p:h")
@@ -635,35 +636,34 @@ local function prompt_for_action_target(action_verb, callback)
       linked_filename,
       current_filename
     )
-    -- Use '&' for hotkeys. Ensure verb is capitalized.
     local choice = vim.fn.confirm(prompt, "&Linked File\n&Current File\n&Cancel")
 
-    if choice == 1 then
-      local wiki_root, _ = finder.find_wiki_for_buffer(linked_file_path)
-      if wiki_root then
-        local wiki_root_index_file = util.join_path(wiki_root, config.index_file)
-        fallback_targets[wiki_root_index_file] = true
-      end
-      fallback_targets[current_buf_path] = true
-      callback(linked_file_path, fallback_targets)
-    elseif choice == 2 then
-      local wiki_root, _ = finder.find_wiki_for_buffer(current_buf_path)
-      if wiki_root then
-        local wiki_root_index_file = util.join_path(wiki_root, config.index_file)
-        fallback_targets[wiki_root_index_file] = true
-      end
-      callback(current_buf_path, fallback_targets)
-    else
+    if choice == 1 then -- User chose "Linked File"
+      path_to_action = linked_file_path
+      additional_fallback = current_buf_path -- The current buffer is the other option
+    elseif choice == 2 then -- User chose "Current File"
+      path_to_action = current_buf_path
+    else -- User cancelled
       vim.notify(action_verb .. " operation canceled.", vim.log.levels.INFO, { title = "neowiki" })
+      return
     end
   else
-    -- If not on a link, act on the current file.
-    local wiki_root, _ = finder.find_wiki_for_buffer(current_buf_path)
+    -- If not on a link, the action always targets the current file.
+    path_to_action = current_buf_path
+  end
+
+  -- If a path has been determined, calculate fallbacks and execute the callback.
+  if path_to_action then
+    local fallback_targets = {}
+    local wiki_root, _ = finder.find_wiki_for_buffer(path_to_action)
     if wiki_root then
       local wiki_root_index_file = util.join_path(wiki_root, config.index_file)
       fallback_targets[wiki_root_index_file] = true
     end
-    callback(current_buf_path, fallback_targets)
+    if additional_fallback then
+      fallback_targets[additional_fallback] = true
+    end
+    callback(path_to_action, fallback_targets)
   end
 end
 
@@ -867,7 +867,6 @@ end
 ---
 -- Entry point for deleting a wiki page.
 wiki_action.delete_wiki_page = function()
-
   local delete_config = {
     verb = "Delete",
     setup = function(_, _, callback)
