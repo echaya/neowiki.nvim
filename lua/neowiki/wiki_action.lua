@@ -652,18 +652,16 @@ local function prompt_for_action_target(action_verb, callback)
     local choice = vim.fn.confirm(prompt, "&Linked File\n&Current File\n&Cancel")
 
     if choice == 1 then
-      fallback_targets[current_buf_path] = true
       local wiki_root, _ = finder.find_wiki_for_buffer(linked_file_path)
       if wiki_root then
-        vim.notify("wiki_root check in action: " .. wiki_root)
         local wiki_root_index_file = util.join_path(wiki_root, config.index_file)
         fallback_targets[wiki_root_index_file] = true
       end
+      fallback_targets[current_buf_path] = true
       callback(linked_file_path, fallback_targets)
     elseif choice == 2 then
       local wiki_root, _ = finder.find_wiki_for_buffer(current_buf_path)
       if wiki_root then
-        vim.notify("wiki_root check in action: " .. wiki_root)
         local wiki_root_index_file = util.join_path(wiki_root, config.index_file)
         fallback_targets[wiki_root_index_file] = true
       end
@@ -672,10 +670,9 @@ local function prompt_for_action_target(action_verb, callback)
       vim.notify(action_verb .. " operation canceled.", vim.log.levels.INFO, { title = "neowiki" })
     end
   else
-    -- If not on a link, act on the current file by default.
+    -- If not on a link, act on the current file.
     local wiki_root, _ = finder.find_wiki_for_buffer(current_buf_path)
     if wiki_root then
-      vim.notify("wiki_root check in action: " .. wiki_root)
       local wiki_root_index_file = util.join_path(wiki_root, config.index_file)
       fallback_targets[wiki_root_index_file] = true
     end
@@ -821,11 +818,19 @@ local function execute_delete_logic(path_to_delete, fallback_targets)
     return
   end
 
+  local was_current_buffer = util.normalize_path_for_comparison(path_to_delete)
+    == util.normalize_path_for_comparison(vim.api.nvim_buf_get_name(0))
+
   vim.notify("Page deleted: " .. filename, vim.log.levels.INFO, { title = "neowiki" })
   -- TODO to add a delete buffer util?
   local bufnr = vim.fn.bufnr(path_to_delete)
   if bufnr ~= -1 then
     vim.cmd("bdelete! " .. bufnr)
+  end
+
+  if was_current_buffer then
+    local file_path, _ = next(fallback_targets)
+    vim.cmd("edit " .. vim.fn.fnameescape(file_path))
   end
 
   -- Define the "delete" transformation for backlinks.
@@ -849,7 +854,6 @@ local function execute_delete_logic(path_to_delete, fallback_targets)
         vim.log.levels.INFO,
         { title = "neowiki" }
       )
-      require("neowiki.wiki").jump_to_index()
       vim.cmd("checktime")
     else
       vim.notify("No backlinks found to remove.", vim.log.levels.INFO, { title = "neowiki" })
