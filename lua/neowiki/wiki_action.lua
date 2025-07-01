@@ -5,6 +5,10 @@ local state = require("neowiki.state")
 
 local wiki_action = {}
 
+---
+-- Checks if the current buffer is recognized as being inside a Neowiki directory.
+-- @return (boolean) Returns `true` if the buffer is part of a Neowiki, otherwise `false`.
+--
 wiki_action.check_in_neowiki = function()
   if not vim.b[0] or not vim.b[0].wiki_root then
     vim.notify(
