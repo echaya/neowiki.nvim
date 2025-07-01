@@ -314,37 +314,37 @@ end
 
 ---
 -- Uses native lua to find all backlinks to wiki index file
--- @param wiki_root (string) The absolute path of the directory to index file
--- @param search_term (string) The search_term to match in eac line.
+-- @param search_targets (table) A list of search target files
 -- @return (table|nil) A list of match objects, or nil if none is found
 --   Each object contains: { file = absolute_path, lnum = line_number, text = text_of_line }
-finder.find_backlink_fallback = function(wiki_root, search_term)
+finder.find_backlink_fallback = function(search_targets, search_term)
   vim.notify(
     "rg not found. Falling back to searching the immediate index file.",
     vim.log.levels.INFO,
     { title = "neowiki" }
   )
   local matches = {}
-  local index_file_path = util.join_path(wiki_root, config.index_file)
-  if vim.fn.filereadable(index_file_path) == 1 then
-    local all_lines = vim.fn.readfile(index_file_path)
-    for i, line in ipairs(all_lines) do
-      if line:find(search_term, 1, true) then
-        table.insert(matches, {
-          file = index_file_path,
-          lnum = i,
-          text = line,
-        })
+  for file_path, _ in pairs(search_targets) do
+    if vim.fn.filereadable(file_path) == 1 then
+      local all_lines = vim.fn.readfile(file_path)
+      for i, line in ipairs(all_lines) do
+        if line:find(search_term, 1, true) then
+          table.insert(matches, {
+            file = file_path,
+            lnum = i,
+            text = line,
+          })
+        end
       end
+    else
+      vim.notify(
+        "Could not read " .. file_path .. " for backlink search: " .. file_path,
+        vim.log.levels.WARN,
+        { title = "neowiki" }
+      )
     end
-    return #matches > 0 and matches or nil
-  else
-    vim.notify(
-      "Could not read index file for backlink search: " .. index_file_path,
-      vim.log.levels.WARN,
-      { title = "neowiki" }
-    )
   end
+  return #matches > 0 and matches or nil
 end
 
 return finder

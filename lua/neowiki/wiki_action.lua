@@ -634,6 +634,7 @@ local function prompt_for_action_target(action_verb, callback)
   local line = vim.api.nvim_get_current_line()
   local link_target = wiki_action.process_link(cursor, line)
   local current_buf_path = vim.api.nvim_buf_get_name(0)
+  local fallback_targets = {}
 
   if link_target and not util.is_web_link(link_target) then
     local current_dir = vim.fn.fnamemodify(current_buf_path, ":p:h")
@@ -651,15 +652,31 @@ local function prompt_for_action_target(action_verb, callback)
     local choice = vim.fn.confirm(prompt, "&Linked File\n&Current File\n&Cancel")
 
     if choice == 1 then
-      callback(linked_file_path)
+      fallback_targets[current_buf_path] = true
+      local wiki_root, _ = finder.find_wiki_for_buffer(linked_file_path)
+      if wiki_root then
+        vim.notify("wiki_root check in action: " .. wiki_root)
+        fallback_targets[wiki_root] = true
+      end
+      callback(linked_file_path, fallback_targets)
     elseif choice == 2 then
-      callback(current_buf_path)
+      local wiki_root, _ = finder.find_wiki_for_buffer(current_buf_path)
+      if wiki_root then
+        vim.notify("wiki_root check in action: " .. wiki_root)
+        fallback_targets[wiki_root] = true
+      end
+      callback(current_buf_path, fallback_targets)
     else
       vim.notify(action_verb .. " operation canceled.", vim.log.levels.INFO, { title = "neowiki" })
     end
   else
     -- If not on a link, act on the current file by default.
-    callback(current_buf_path)
+    local wiki_root, _ = finder.find_wiki_for_buffer(current_buf_path)
+    if wiki_root then
+      vim.notify("wiki_root check in action: " .. wiki_root)
+      fallback_targets[wiki_root] = true
+    end
+    callback(current_buf_path, fallback_targets)
   end
 end
 
@@ -773,7 +790,7 @@ end
 ---
 -- Executes the core logic for deleting a file and initiating cleanup.
 -- @param path_to_delete (string) The absolute path of the file to delete.
-local function execute_delete_logic(path_to_delete)
+local function execute_delete_logic(path_to_delete, fallback_targets)
   if vim.fn.filereadable(path_to_delete) == 0 then
     vim.notify(
       "File does not exist: " .. path_to_delete,
@@ -816,6 +833,9 @@ local function execute_delete_logic(path_to_delete)
   local ultimate_wiki_root = vim.b[0].ultimate_wiki_root
   local target_filename = vim.fn.fnamemodify(path_to_delete, ":t:r") --file name without the extension
   local backlink_candidates = finder.find_backlinks(ultimate_wiki_root, target_filename)
+  if not backlink_candidates then
+    backlink_candidates = finder.find_backlink_fallback(fallback_targets, target_filename)
+  end
   local changes_for_qf = process_backlinks(path_to_delete, backlink_candidates, delete_transformer)
 
   if changes_for_qf then -- `_process_backlinks` was successful (rg ran).
@@ -826,22 +846,12 @@ local function execute_delete_logic(path_to_delete)
         vim.log.levels.INFO,
         { title = "neowiki" }
       )
+      require("neowiki.wiki").jump_to_index()
+      vim.cmd("checktime")
     else
       vim.notify("No backlinks found to remove.", vim.log.levels.INFO, { title = "neowiki" })
     end
-    require("neowiki.wiki").jump_to_index()
-  else -- Fallback scenario.
-    vim.notify(
-      "rg not found or no backlinks detected. Switching to fallback cleanup.",
-      vim.log.levels.INFO,
-      { title = "neowiki" }
-    )
-    require("neowiki.wiki").jump_to_index()
-    vim.schedule(function()
-      require("neowiki.wiki").cleanup_broken_links()
-    end)
   end
-  vim.cmd("checktime")
 end
 
 ---
@@ -853,7 +863,7 @@ end
 ---
 -- This function is called by the main rename_wiki_page action.
 -- @param old_abs_path (string) The absolute path of the file to rename.
-local function execute_rename_logic(old_abs_path)
+local function execute_rename_logic(old_abs_path, fallback_targets)
   if vim.fn.filereadable(old_abs_path) == 0 then
     vim.notify("File does not exist: " .. old_abs_path, vim.log.levels.ERROR, { title = "neowiki" })
     return
@@ -902,7 +912,6 @@ local function execute_rename_logic(old_abs_path)
 
       -- save ultimate_wiki_root and wiki_root before bdelete
       local ultimate_wiki_root = vim.b[0].ultimate_wiki_root
-      local wiki_root = vim.b[0].wiki_root
       vim.notify("Page renamed to " .. new_filename, vim.log.levels.INFO, { title = "neowiki" })
       local old_bufnr = vim.fn.bufnr(old_abs_path)
       if old_bufnr ~= -1 then
@@ -918,7 +927,7 @@ local function execute_rename_logic(old_abs_path)
       local target_filename = vim.fn.fnamemodify(old_abs_path, ":t:r") --file name without the extension
       local backlink_candidates = finder.find_backlinks(ultimate_wiki_root, target_filename)
       if not backlink_candidates then
-        backlink_candidates = finder.find_backlink_fallback(wiki_root, target_filename)
+        backlink_candidates = finder.find_backlink_fallback(fallback_targets, target_filename)
       end
       local changes_for_qf =
         process_backlinks(old_abs_path, backlink_candidates, rename_transformer)
