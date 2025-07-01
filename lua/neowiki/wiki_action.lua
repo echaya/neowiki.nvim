@@ -718,19 +718,16 @@ end
 ---
 -- Generic backlink processor that verifies links and applies a transformation.
 -- @param old_abs_path (string) The absolute path of the file that was changed.
+-- @param backlink_candidates (table) The candiates for transformation
 -- @param line_transformer (function) A function to apply to each verified backlink line.
 --   It receives `(line_content, file_dir, old_abs_path)` and should return the modified line.
 -- @return (table) A list of changes suitable for the quickfix list.
-local function _process_backlinks(old_abs_path, line_transformer)
-  local changes_for_qf = {}
-  local files_to_update = {}
-  local ultimate_wiki_root = vim.b[0].ultimate_wiki_root
-  local old_filename = vim.fn.fnamemodify(old_abs_path, ":t:r")
-  local backlink_candidates = finder.find_backlinks(ultimate_wiki_root, old_filename)
-
+local function _process_backlinks(old_abs_path, backlink_candidates, line_transformer)
   if not backlink_candidates or #backlink_candidates == 0 then
     return nil -- Indicate that rg failed or found nothing.
   end
+  local changes_for_qf = {}
+  local files_to_update = {}
 
   for _, match in ipairs(backlink_candidates) do
     local temp_cursor = { match.lnum, 0 }
@@ -816,7 +813,10 @@ local function _execute_delete_logic(path_to_delete)
     return _find_and_remove_link_markup(line_content)
   end
 
-  local changes_for_qf = _process_backlinks(path_to_delete, delete_transformer)
+  local ultimate_wiki_root = vim.b[0].ultimate_wiki_root
+  local target_filename = vim.fn.fnamemodify(path_to_delete, ":t:r") --file name without the extension
+  local backlink_candidates = finder.find_backlinks(ultimate_wiki_root, target_filename)
+  local changes_for_qf = _process_backlinks(path_to_delete, backlink_candidates, delete_transformer)
 
   if changes_for_qf then -- `_process_backlinks` was successful (rg ran).
     if #changes_for_qf > 0 then
@@ -912,6 +912,8 @@ local function _execute_rename_logic(old_abs_path)
         return _find_and_replace_link_markup(line_content, new_relative_path)
       end
 
+      local ultimate_wiki_root = vim.b[0].ultimate_wiki_root
+      local backlink_candidates = finder.find_backlinks(ultimate_wiki_root, target_filename)
       local changes_for_qf = _process_backlinks(old_abs_path, rename_transformer)
 
       if changes_for_qf and #changes_for_qf > 0 then
