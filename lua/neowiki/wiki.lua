@@ -157,19 +157,6 @@ wiki.jump_to_index = function()
 end
 
 ---
--- Deletes the current wiki page after confirmation. Prevents deletion of the
--- root config.index_file and then triggers a cleanup of broken links.
---
-wiki.delete_wiki = function()
-  -- Pre-check to ensure we are in a valid wiki context.
-  if not wiki_action.check_in_neowiki() then
-    return
-  end
-  -- Delegate the complex logic to the wiki_action module.
-  wiki_action.delete_wiki_page()
-end
-
----
 -- Finds broken links, displays them, and prompts the user for action:
 -- populate quickfix, remove lines, or cancel.
 --
@@ -245,6 +232,19 @@ wiki.rename_wiki_page = function()
     return
   end
   wiki_action.rename_wiki_page()
+end
+
+---
+-- Deletes the current wiki page after confirmation. Prevents deletion of the
+-- root config.index_file and then triggers a cleanup of broken links.
+--
+wiki.delete_wiki_page = function()
+  -- Pre-check to ensure we are in a valid wiki context.
+  if not wiki_action.check_in_neowiki() then
+    return
+  end
+  -- Delegate the complex logic to the wiki_action module.
+  wiki_action.delete_wiki_page()
 end
 
 return wiki

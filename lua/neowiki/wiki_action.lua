@@ -110,7 +110,7 @@ wiki_action.create_buffer_keymaps = function(buffer_number)
       n = { rhs = require("neowiki.wiki").jump_to_index, desc = "Jump to Index" },
     },
     delete_page = {
-      n = { rhs = require("neowiki.wiki").delete_wiki, desc = "Delete Wiki Page" },
+      n = { rhs = require("neowiki.wiki").delete_wiki_page, desc = "Delete Wiki Page" },
     },
     cleanup_links = {
       n = { rhs = require("neowiki.wiki").cleanup_broken_links, desc = "Clean Broken Links" },
@@ -942,7 +942,7 @@ local function execute_rename_logic(old_abs_path, fallback_targets)
 end
 
 ---
--- Determines the context (on a link or not) and dispatches to the core logic.
+-- Entry point for rename a wiki page.
 wiki_action.rename_wiki_page = function()
   if not wiki_action.check_in_neowiki() then
     return
