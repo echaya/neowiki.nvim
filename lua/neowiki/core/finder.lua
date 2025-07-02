@@ -1,8 +1,9 @@
+-- lua/neowiki/core/finder.lua
 local util = require("neowiki.util")
 local config = require("neowiki.config")
 local state = require("neowiki.state")
 
-local finder = {}
+local M = {}
 
 -- Variable to ensure the fallback notification is only shown once per session.
 local native_fallback_notified = false
@@ -107,7 +108,7 @@ end
 -- @param extension (string) The file extension to look for (e.g., ".md").
 -- @return (table) A list of absolute paths to the found wiki pages.
 --
-finder.find_wiki_pages = function(search_path, extension)
+M.find_wiki_pages = function(search_path, extension)
   -- Delegate to the main file-finding function with 'ext' type.
   return find_files(search_path, extension, "ext")
 end
@@ -118,7 +119,7 @@ end
 -- @param index_filename (string): The name of the index file (e.g., "index.md").
 -- @return (table): A list of absolute paths to the directories containing the index file.
 --
-finder.find_nested_roots = function(search_path, index_filename)
+M.find_nested_roots = function(search_path, index_filename)
   local roots = {}
   if not search_path or search_path == "" then
     return roots
@@ -137,11 +138,12 @@ end
 ---
 -- Finds the most specific wiki root that contains the given buffer path.
 -- @param buf_path (string) The absolute path of the buffer to check.
--- @return (string|nil, string|nil, string|nil) Returns three paths: the primary 'wiki_root' for navigation
---   (e.g., jumping to index), the 'active_wiki_path' which is the most specific root
---   containing the buffer, and the 'ultimate_wiki_root' which is the top-most parent wiki.
+-- @return (string|nil, string|nil, string|nil) Returns three paths:
+--   - **wiki_root** (string|nil): The primary root for navigation (e.g., for `jump_to_index`). This may point to a parent wiki if the buffer is a nested index.
+--   - **active_wiki_path** (string|nil): The most specific wiki root that contains the buffer. This is the directory where new pages from the current buffer would be created.
+--   - **ultimate_wiki_root** (string|nil): The top-most parent wiki in a nested structure, used as the search scope for actions like inserting links.
 --
-finder.find_wiki_for_buffer = function(buf_path)
+M.find_wiki_for_buffer = function(buf_path)
   local current_file_path = vim.fn.fnamemodify(buf_path, ":p")
   local normalized_current_path = util.normalize_path_for_comparison(current_file_path)
   local current_filename = vim.fn.fnamemodify(buf_path, ":t"):lower()
@@ -183,85 +185,13 @@ finder.find_wiki_for_buffer = function(buf_path)
 end
 
 ---
--- Finds all valid markdown link targets on a single line of text.
--- @param line (string): The line to search.
--- @return (table): A list of processed link targets found on the line.
---
-local find_all_link_targets = function(line)
-  local targets = {}
-
-  -- Find standard markdown links: [text](target)
-  for file in line:gmatch("%]%(<?([^)>]+)>?%)") do
-    local processed = util.process_link_target(file, state.markdown_extension)
-    if processed then
-      table.insert(targets, processed)
-    end
-  end
-
-  -- Find wikilinks: [[target]]
-  for file in line:gmatch("%[%[([^]]+)%]%]") do
-    local processed = util.process_link_target(file, state.markdown_extension)
-    if processed then
-      table.insert(targets, processed)
-    end
-  end
-
-  return targets
-end
-
----
--- Scans the current buffer for markdown links that point to non-existent files.
--- @return (table) A list of objects, where each object represents a line
---   containing at least one broken link. Each object contains `lnum` and `text`.
---   Returns an empty table if no broken links are found.
---
-finder.find_broken_links_in_buffer = function()
-  local broken_links_info = {}
-  local current_buf_path = vim.api.nvim_buf_get_name(0)
-  if not current_buf_path or current_buf_path == "" then
-    return broken_links_info -- Not a file buffer
-  end
-
-  local current_dir = vim.fn.fnamemodify(current_buf_path, ":p:h")
-  local all_lines = vim.api.nvim_buf_get_lines(0, 0, -1, false)
-
-  for i, line in ipairs(all_lines) do
-    local has_broken_link_on_line = false
-    local link_targets = find_all_link_targets(line)
-
-    for _, target in ipairs(link_targets) do
-      -- Ignore external URLs when checking for broken file links.
-      if not util.is_web_link(target) then
-        local full_target_path = util.join_path(current_dir, target)
-        full_target_path = vim.fn.fnamemodify(full_target_path, ":p")
-        -- A link is considered broken if the target file isn't readable.
-        if vim.fn.filereadable(full_target_path) == 0 then
-          has_broken_link_on_line = true
-          break -- One broken link is enough to mark the entire line.
-        end
-      end
-    end
-
-    if has_broken_link_on_line then
-      table.insert(broken_links_info, {
-        filename = current_buf_path,
-        lnum = i,
-        text = line,
-      })
-    end
-  end
-
-  return broken_links_info
-end
-
----
 -- Uses Ripgrep (rg) to find all backlinks to a specific file.
 -- It searches for markdown links `[text](target)` and wikilinks `[[target]]`.
 -- @param search_path (string) The absolute path of the directory to search within.
 -- @param target_filename (string) The filename to search for in links.
 -- @return (table|nil) A list of match objects, or nil if rg is not available or finds nothing.
 --   Each object contains: { file = absolute_path, lnum = line_number, text = text_of_line }
-finder.find_backlinks = function(search_path, target_filename)
+M.find_backlinks = function(search_path, target_filename)
   if vim.fn.executable("rg") ~= 1 then
     return nil -- Ripgrep is required for this enhanced search.
   end
@@ -317,7 +247,7 @@ end
 -- @param search_targets (table) A list of search target files
 -- @return (table|nil) A list of match objects, or nil if none is found
 --   Each object contains: { file = absolute_path, lnum = line_number, text = text_of_line }
-finder.find_backlink_fallback = function(search_targets, search_term)
+M.find_backlink_fallback = function(search_targets, search_term)
   vim.notify(
     "rg not found. Falling back to searching the immediate index file.",
     vim.log.levels.INFO,
@@ -347,4 +277,4 @@ finder.find_backlink_fallback = function(search_targets, search_term)
   return #matches > 0 and matches or nil
 end
 
-return finder
+return M
