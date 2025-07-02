@@ -5,6 +5,10 @@ local state = require("neowiki.state")
 
 local wiki_action = {}
 
+---
+-- Checks if the current buffer is recognized as being inside a Neowiki directory.
+-- @return (boolean) Returns `true` if the buffer is part of a Neowiki, otherwise `false`.
+--
 wiki_action.check_in_neowiki = function()
   if not vim.b[0] or not vim.b[0].wiki_root then
     vim.notify(
@@ -110,7 +114,7 @@ wiki_action.create_buffer_keymaps = function(buffer_number)
       n = { rhs = require("neowiki.wiki").jump_to_index, desc = "Jump to Index" },
     },
     delete_page = {
-      n = { rhs = require("neowiki.wiki").delete_wiki, desc = "Delete Wiki Page" },
+      n = { rhs = require("neowiki.wiki").delete_wiki_page, desc = "Delete Wiki Page" },
     },
     cleanup_links = {
       n = { rhs = require("neowiki.wiki").cleanup_broken_links, desc = "Clean Broken Links" },
@@ -621,7 +625,8 @@ local function prompt_for_action_target(action_verb, callback)
   local line = vim.api.nvim_get_current_line()
   local link_target = wiki_action.process_link(cursor, line)
   local current_buf_path = vim.api.nvim_buf_get_name(0)
-  local fallback_targets = {}
+  local path_to_action = nil
+  local additional_fallback = nil
 
   if link_target and not util.is_web_link(link_target) then
     local current_dir = vim.fn.fnamemodify(current_buf_path, ":p:h")
@@ -635,85 +640,67 @@ local function prompt_for_action_target(action_verb, callback)
       linked_filename,
       current_filename
     )
-    -- Use '&' for hotkeys. Ensure verb is capitalized.
     local choice = vim.fn.confirm(prompt, "&Linked File\n&Current File\n&Cancel")
 
-    if choice == 1 then
-      local wiki_root, _ = finder.find_wiki_for_buffer(linked_file_path)
-      if wiki_root then
-        local wiki_root_index_file = util.join_path(wiki_root, config.index_file)
-        fallback_targets[wiki_root_index_file] = true
-      end
-      fallback_targets[current_buf_path] = true
-      callback(linked_file_path, fallback_targets)
-    elseif choice == 2 then
-      local wiki_root, _ = finder.find_wiki_for_buffer(current_buf_path)
-      if wiki_root then
-        local wiki_root_index_file = util.join_path(wiki_root, config.index_file)
-        fallback_targets[wiki_root_index_file] = true
-      end
-      callback(current_buf_path, fallback_targets)
-    else
+    if choice == 1 then -- User chose "Linked File"
+      path_to_action = linked_file_path
+      additional_fallback = current_buf_path -- The current buffer is the other option
+    elseif choice == 2 then -- User chose "Current File"
+      path_to_action = current_buf_path
+    else -- User cancelled
       vim.notify(action_verb .. " operation canceled.", vim.log.levels.INFO, { title = "neowiki" })
+      return
     end
   else
-    -- If not on a link, act on the current file.
-    local wiki_root, _ = finder.find_wiki_for_buffer(current_buf_path)
+    -- If not on a link, the action always targets the current file.
+    path_to_action = current_buf_path
+  end
+
+  -- If a path has been determined, calculate fallbacks and execute the callback.
+  if path_to_action then
+    local fallback_targets = {}
+    local wiki_root, _ = finder.find_wiki_for_buffer(path_to_action)
     if wiki_root then
       local wiki_root_index_file = util.join_path(wiki_root, config.index_file)
       fallback_targets[wiki_root_index_file] = true
     end
-    callback(current_buf_path, fallback_targets)
+    if additional_fallback then
+      fallback_targets[additional_fallback] = true
+    end
+    callback(path_to_action, fallback_targets)
   end
 end
 
 ---
--- Finds the first markdown or wikilink on a line and replaces it.
--- @param line (string) The line containing the link to replace.
--- @param new_target_path (string) The new relative path for the link's target.
+-- Finds the first markdown or wikilink on a line and transforms it.
+-- @param line (string) The line containing the link.
+-- @param transform_fn (function) A function that receives the link components and returns the new link markup.
+--   - For markdown links, receives (link_text, old_target). e.g., "My Page", "./my_page.md"
+--   - For wikilinks, receives (link_text). e.g., "My Page"
 -- @return (string, number) The modified line and the count of replacements.
-local function find_and_replace_link_markup(line, new_target_path)
-  -- 1. First, try to find and replace a standard markdown link: [text](target)
-  --    We capture the link text part and the target part separately.
+--
+local function find_and_transform_link_markup(line, transform_fn)
+  -- 1. Try to transform a standard markdown link: [text](target)
   local md_pattern = "(%[.-%])(%(.-%))"
-  local link_text, old_target_part = line:match(md_pattern)
+  local md_link_text, md_target_part = line:match(md_pattern)
 
-  if link_text and old_target_part then
-    local old_full_markup = link_text .. old_target_part
-    local new_full_markup = link_text .. "(" .. new_target_path .. ")"
+  if md_link_text and md_target_part then
+    local old_full_markup = md_link_text .. md_target_part
+    -- Extract the raw target from within the parentheses
+    local old_target = md_target_part:match("%((.*)%)")
+    -- The transform function returns the complete new markup, e.g., "[My Page](./new.md)" or ""
+    local new_full_markup = transform_fn(md_link_text, old_target)
     return line:gsub(vim.pesc(old_full_markup), new_full_markup, 1)
   end
 
-  -- 2. If no markdown link was found, try to find and replace a wikilink: [[target]]
-  local wiki_pattern = "(%[%[.-%]%])"
-  local old_full_markup = line:match(wiki_pattern)
+  -- 2. If no markdown link, try to transform a wikilink: [[target]]
+  local wiki_pattern = "%[%[(.-)%]%]"
+  local old_link_text = line:match(wiki_pattern)
 
-  if old_full_markup then
-    local new_link_text = vim.fn.fnamemodify(new_target_path, ":r")
-    local new_full_markup = "[[" .. new_link_text .. "]]"
+  if old_link_text then
+    local old_full_markup = "[[" .. old_link_text .. "]]"
+    local new_full_markup = transform_fn(old_link_text)
     return line:gsub(vim.pesc(old_full_markup), new_full_markup, 1)
-  end
-
-  return line, 0
-end
-
----
--- Finds the first markdown or wikilink on a line and removes it.
--- @param line (string) The line containing the link to remove.
--- @return (string, number) The modified line and the count of removals.
--- Todo to refactor with find and replace?
-local function find_and_remove_link_markup(line)
-  -- Logic from our previous refactor...
-  local md_pattern = "(%[.-%]%((.-)%))"
-  local full_md_markup = line:match(md_pattern)
-  if full_md_markup then
-    return line:gsub(vim.pesc(full_md_markup), "", 1)
-  end
-
-  local wiki_pattern = "(%[%[.-%]%])"
-  local full_wiki_markup = line:match(wiki_pattern)
-  if full_wiki_markup then
-    return line:gsub(vim.pesc(full_wiki_markup), "", 1)
   end
 
   return line, 0
@@ -775,179 +762,206 @@ local function process_backlinks(old_abs_path, backlink_candidates, line_transfo
 end
 
 ---
--- Executes the core logic for deleting a file and initiating cleanup.
--- @param path_to_delete (string) The absolute path of the file to delete.
-local function execute_delete_logic(path_to_delete, fallback_targets)
-  if vim.fn.filereadable(path_to_delete) == 0 then
+-- Core logic to execute a file action (rename/delete), including backlink updates.
+-- @param path_to_action (string) Absolute path of the file to modify.
+-- @param fallback_targets (table) Paths to fall back to if the current buffer is closed.
+-- @param action_config (table) A table defining the specific action to perform.
+--
+local function execute_file_action(path_to_action, fallback_targets, action_config)
+  -- 1. Pre-flight checks
+  if vim.fn.filereadable(path_to_action) == 0 then
     vim.notify(
-      "File does not exist: " .. path_to_delete,
+      "File does not exist: " .. path_to_action,
       vim.log.levels.ERROR,
       { title = "neowiki" }
     )
     return
   end
 
-  local filename = vim.fn.fnamemodify(path_to_delete, ":t")
+  local filename = vim.fn.fnamemodify(path_to_action, ":t")
   if filename == config.index_file then
-    vim.notify("Deleting an index file is not allowed.", vim.log.levels.WARN, { title = "neowiki" })
+    vim.notify(
+      action_config.verb .. "ing an index file is not allowed.",
+      vim.log.levels.WARN,
+      { title = "neowiki" }
+    )
     return
   end
 
-  local prompt = string.format("Permanently delete '%s' and clean up all backlinks?", filename)
-  if vim.fn.confirm(prompt, "&Yes\n&No") ~= 1 then
-    vim.notify("Delete operation canceled.", vim.log.levels.INFO, { title = "neowiki" })
-    return
-  end
-
-  local delete_ok, delete_err = pcall(os.remove, path_to_delete)
-  if not delete_ok then
-    vim.notify("Error deleting file: " .. delete_err, vim.log.levels.ERROR, { title = "neowiki" })
-    return
-  end
-
-  local was_current_buffer = util.normalize_path_for_comparison(path_to_delete)
-    == util.normalize_path_for_comparison(vim.api.nvim_buf_get_name(0))
-
-  vim.notify("Page deleted: " .. filename, vim.log.levels.INFO, { title = "neowiki" })
-  util.delete_target_buffer(path_to_delete)
-
-  if was_current_buffer then
-    local file_path, _ = next(fallback_targets)
-    vim.cmd("edit " .. vim.fn.fnameescape(file_path))
-  end
-
-  -- Define the "delete" transformation for backlinks.
-  local delete_transformer = function(line_content, _, _)
-    return find_and_remove_link_markup(line_content)
-  end
-
-  local ultimate_wiki_root = vim.b[0].ultimate_wiki_root
-  local target_filename = vim.fn.fnamemodify(path_to_delete, ":t:r") --file name without the extension
-  local backlink_candidates = finder.find_backlinks(ultimate_wiki_root, target_filename)
-  if not backlink_candidates then
-    backlink_candidates = finder.find_backlink_fallback(fallback_targets, target_filename)
-  end
-  local changes_for_qf = process_backlinks(path_to_delete, backlink_candidates, delete_transformer)
-
-  if changes_for_qf then -- `_process_backlinks` was successful (rg ran).
-    if #changes_for_qf > 0 then
-      util.populate_quickfix_list(changes_for_qf, "Removed Backlinks")
+  -- 2. Action-specific setup (e.g., get new name via vim.ui.input)
+  action_config.setup(filename, path_to_action, function(context)
+    if not context then -- User cancelled the setup phase
       vim.notify(
-        "Removed " .. #changes_for_qf .. " backlink(s). See quickfix list.",
+        action_config.verb .. " operation canceled.",
         vim.log.levels.INFO,
         { title = "neowiki" }
       )
-      vim.cmd("checktime")
-    else
-      vim.notify("No backlinks found to remove.", vim.log.levels.INFO, { title = "neowiki" })
+      return
     end
-  end
+
+    -- 3. Final confirmation
+    local confirm_prompt = action_config.get_confirm_prompt(filename, context)
+    if vim.fn.confirm(confirm_prompt, "&Yes\n&No") ~= 1 then
+      vim.notify(
+        action_config.verb .. " operation canceled.",
+        vim.log.levels.INFO,
+        { title = "neowiki" }
+      )
+      return
+    end
+
+    local was_current_buffer = util.normalize_path_for_comparison(path_to_action)
+      == util.normalize_path_for_comparison(vim.api.nvim_buf_get_name(0))
+
+    -- 4. Execute the file system operation
+    local ok, err = pcall(action_config.file_op, path_to_action, context)
+    if not ok then
+      vim.notify(
+        "Error " .. action_config.verb:lower() .. "ing file: " .. err,
+        vim.log.levels.ERROR,
+        { title = "neowiki" }
+      )
+      return
+    end
+
+    -- 5. Notify user and manage buffers
+    local ultimate_wiki_root = vim.b[0].ultimate_wiki_root
+    vim.notify(
+      action_config.get_success_message(filename, context),
+      vim.log.levels.INFO,
+      { title = "neowiki" }
+    )
+    util.delete_target_buffer(path_to_action)
+
+    if was_current_buffer and action_config.post_action_buffer_fn then
+      action_config.post_action_buffer_fn(fallback_targets, context)
+    end
+
+    -- 6. Find and process backlinks
+    local target_filename_no_ext = vim.fn.fnamemodify(path_to_action, ":t:r")
+    local backlink_candidates = finder.find_backlinks(ultimate_wiki_root, target_filename_no_ext)
+    if not backlink_candidates then
+      backlink_candidates = finder.find_backlink_fallback(fallback_targets, target_filename_no_ext)
+    end
+
+    local line_transformer = action_config.get_backlink_transformer(context)
+    local changes_for_qf = process_backlinks(path_to_action, backlink_candidates, line_transformer)
+
+    -- 7. Update UI with backlink results
+    if changes_for_qf then
+      if #changes_for_qf > 0 then
+        util.populate_quickfix_list(changes_for_qf, action_config.backlink_qf_title)
+        vim.notify(
+          string.format(
+            "%s %d backlink(s). See quickfix list.",
+            action_config.verb,
+            #changes_for_qf
+          ),
+          vim.log.levels.INFO,
+          { title = "neowiki" }
+        )
+      else
+        vim.notify("No backlinks found to update.", vim.log.levels.INFO, { title = "neowiki" })
+      end
+    end
+    vim.cmd("checktime")
+  end)
 end
 
 ---
 -- Entry point for deleting a wiki page.
 wiki_action.delete_wiki_page = function()
-  prompt_for_action_target("Delete", execute_delete_logic)
+  local delete_config = {
+    verb = "Delete",
+    setup = function(_, _, callback)
+      callback({})
+    end, -- No setup needed for delete
+    get_confirm_prompt = function(filename, _)
+      return string.format("Permanently delete '%s' and clean up all backlinks?", filename)
+    end,
+    file_op = function(path, _)
+      return os.remove(path)
+    end,
+    get_success_message = function(filename, _)
+      return "Page deleted: " .. filename
+    end,
+    post_action_buffer_fn = function(fallbacks, _)
+      local fallback_path, _ = next(fallbacks)
+      if fallback_path then
+        vim.cmd("edit " .. vim.fn.fnameescape(fallback_path))
+      end
+    end,
+    get_backlink_transformer = function(_)
+      return function(line_content, _, _)
+        return find_and_transform_link_markup(line_content, function()
+          return ""
+        end)
+      end
+    end,
+    backlink_qf_title = "Removed Backlinks",
+  }
+
+  prompt_for_action_target(delete_config.verb, function(path, fallbacks)
+    execute_file_action(path, fallbacks, delete_config)
+  end)
 end
 
 ---
--- This function is called by the main rename_wiki_page action.
--- @param old_abs_path (string) The absolute path of the file to rename.
-local function execute_rename_logic(old_abs_path, fallback_targets)
-  if vim.fn.filereadable(old_abs_path) == 0 then
-    vim.notify("File does not exist: " .. old_abs_path, vim.log.levels.ERROR, { title = "neowiki" })
-    return
-  end
-
-  local old_filename = vim.fn.fnamemodify(old_abs_path, ":t")
-  if old_filename == config.index_file then
-    vim.notify("Renaming an index file is not allowed.", vim.log.levels.WARN, { title = "neowiki" })
-    return
-  end
-
-  vim.ui.input(
-    { prompt = "Enter new page name:", default = old_filename, completion = "file" },
-    function(input)
-      if not input or input == "" then
-        vim.notify("Rename cancelled.", vim.log.levels.INFO, { title = "neowiki" })
-        return
-      end
-
-      local new_filename = (vim.fn.fnamemodify(input, ":e") == "")
-          and (input .. state.markdown_extension)
-        or input
-      if new_filename == old_filename then
-        vim.notify("Name unchanged. Rename cancelled.", vim.log.levels.INFO, { title = "neowiki" })
-        return
-      end
-
-      local new_full_path = util.join_path(vim.fn.fnamemodify(old_abs_path, ":h"), new_filename)
-      local prompt =
-        string.format("Rename '%s' to '%s' and update all backlinks?", old_filename, new_filename)
-      if vim.fn.confirm(prompt, "&Yes\n&No") ~= 1 then
-        vim.notify("Rename operation canceled.", vim.log.levels.INFO, { title = "neowiki" })
-        return
-      end
-
-      local was_current_buffer = util.normalize_path_for_comparison(old_abs_path)
-        == util.normalize_path_for_comparison(vim.api.nvim_buf_get_name(0))
-
-      local rename_ok, rename_err = pcall(vim.fn.rename, old_abs_path, new_full_path)
-      if not rename_ok then
-        vim.notify(
-          "Error renaming file: " .. rename_err,
-          vim.log.levels.ERROR,
-          { title = "neowiki" }
-        )
-        return
-      end
-
-      -- save ultimate_wiki_root and wiki_root before bdelete
-      local ultimate_wiki_root = vim.b[0].ultimate_wiki_root
-      vim.notify("Page renamed to " .. new_filename, vim.log.levels.INFO, { title = "neowiki" })
-      util.delete_target_buffer(old_abs_path)
-
-      -- Define the "rename" transformation for backlinks.
-      local rename_transformer = function(line_content, file_dir, _)
-        local new_relative_path = util.get_relative_path(file_dir, new_full_path)
-        return find_and_replace_link_markup(line_content, new_relative_path)
-      end
-
-      local target_filename = vim.fn.fnamemodify(old_abs_path, ":t:r") --file name without the extension
-      local backlink_candidates = finder.find_backlinks(ultimate_wiki_root, target_filename)
-      if not backlink_candidates then
-        backlink_candidates = finder.find_backlink_fallback(fallback_targets, target_filename)
-      end
-      local changes_for_qf =
-        process_backlinks(old_abs_path, backlink_candidates, rename_transformer)
-
-      if changes_for_qf and #changes_for_qf > 0 then
-        util.populate_quickfix_list(changes_for_qf, "Updated Backlinks")
-        vim.notify(
-          "Updated " .. #changes_for_qf .. " backlink(s). See quickfix list.",
-          vim.log.levels.INFO,
-          { title = "neowiki" }
-        )
-      else
-        vim.notify("No backlinks were updated.", vim.log.levels.INFO, { title = "neowiki" })
-      end
-
-      -- Open the newly renamed file if we were editing it.
-      if was_current_buffer then
-        vim.cmd("edit " .. vim.fn.fnameescape(new_full_path))
-      end
-      vim.cmd("checktime")
-    end
-  )
-end
-
----
--- Determines the context (on a link or not) and dispatches to the core logic.
+-- Entry point for renaming a wiki page.
 wiki_action.rename_wiki_page = function()
-  if not wiki_action.check_in_neowiki() then
-    return
-  end
-  prompt_for_action_target("Rename", execute_rename_logic)
+  local rename_config = {
+    verb = "Rename",
+    setup = function(default_name, _, callback)
+      vim.ui.input(
+        { prompt = "Enter new page name:", default = default_name, completion = "file" },
+        function(input)
+          if not input or input == "" or input == default_name then
+            return callback(nil) -- Abort
+          end
+          local new_filename = (vim.fn.fnamemodify(input, ":e") == "")
+              and (input .. state.markdown_extension)
+            or input
+          callback({ new_filename = new_filename })
+        end
+      )
+    end,
+    get_confirm_prompt = function(old_filename, context)
+      return string.format(
+        "Rename '%s' to '%s' and update all backlinks?",
+        old_filename,
+        context.new_filename
+      )
+    end,
+    file_op = function(old_path, context)
+      local new_path = util.join_path(vim.fn.fnamemodify(old_path, ":h"), context.new_filename)
+      context.new_full_path = new_path -- Save for later steps
+      return vim.fn.rename(old_path, new_path)
+    end,
+    get_success_message = function(_, context)
+      return "Page renamed to " .. context.new_filename
+    end,
+    post_action_buffer_fn = function(_, context)
+      vim.cmd("edit " .. vim.fn.fnameescape(context.new_full_path))
+    end,
+    get_backlink_transformer = function(context)
+      return function(line_content, file_dir, _)
+        local new_relative_path = util.get_relative_path(file_dir, context.new_full_path)
+        return find_and_transform_link_markup(line_content, function(link_text, old_target)
+          if old_target then -- Markdown link
+            return link_text .. "(" .. new_relative_path .. ")"
+          else -- Wikilink
+            local new_link_text = vim.fn.fnamemodify(new_relative_path, ":r")
+            return "[[" .. new_link_text .. "]]"
+          end
+        end)
+      end
+    end,
+    backlink_qf_title = "Updated Backlinks",
+  }
+
+  prompt_for_action_target(rename_config.verb, function(path, fallbacks)
+    execute_file_action(path, fallbacks, rename_config)
+  end)
 end
 
 return wiki_action
