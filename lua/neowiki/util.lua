@@ -261,7 +261,7 @@ end
 -- Populates the quickfix list with the provided broken link information and opens it.
 -- @param broken_links_info (table) A list of objects, each with `filename`, `lnum` and `text`
 --
-M.populate_quickfix_list = function(quickfix_info, title)
+M.populate_quickfix_list = function(quickfix_info)
   if not quickfix_info or #quickfix_info == 0 then
     return
   end
@@ -282,10 +282,6 @@ M.populate_quickfix_list = function(quickfix_info, title)
     vim.schedule(function()
       vim.cmd("copen")
     end)
-
-    -- Use the provided title or a sensible default.
-    local notification_message = title or (#qf_list .. " item(s) added to quickfix list.")
-    vim.notify(notification_message, vim.log.levels.INFO, { title = "neowiki" })
   end
 end
 

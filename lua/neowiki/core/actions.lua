@@ -490,7 +490,7 @@ local function execute_file_action(path_to_action, fallback_targets, action_conf
     -- 7. Update UI with backlink results
     if changes_for_qf then
       if #changes_for_qf > 0 then
-        util.populate_quickfix_list(changes_for_qf, action_config.backlink_qf_title)
+        util.populate_quickfix_list(changes_for_qf)
         vim.notify(
           string.format(
             "%s %d backlink(s). See quickfix list.",
@@ -538,7 +538,6 @@ M.delete_wiki_page = function()
         end)
       end
     end,
-    backlink_qf_title = "Removed Backlinks",
   }
 
   ui.prompt_for_action_target(delete_config.verb, function(path, fallbacks)
@@ -596,7 +595,6 @@ M.rename_wiki_page = function()
         end)
       end
     end,
-    backlink_qf_title = "Updated Backlinks",
   }
 
   ui.prompt_for_action_target(rename_config.verb, function(path, fallbacks)
