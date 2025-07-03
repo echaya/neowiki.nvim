@@ -1,4 +1,5 @@
-local util = {}
+-- lua/neowiki/util.lua
+local M = {}
 local is_windows = vim.fn.has("win32") == 1
 
 ---
@@ -7,11 +8,11 @@ local is_windows = vim.fn.has("win32") == 1
 -- @param override (table): The table with values to merge from.
 -- @return (table): A new table containing the merged result.
 --
-util.deep_merge = function(base, override)
+M.deep_merge = function(base, override)
   local result = vim.deepcopy(base)
   for k, v in pairs(override) do
     if type(v) == "table" and type(result[k]) == "table" and not vim.islist(v) then
-      result[k] = util.deep_merge(result[k], v)
+      result[k] = M.deep_merge(result[k], v)
     else
       result[k] = v
     end
@@ -26,7 +27,7 @@ end
 -- @param predicate (function): A function that takes an item and returns `true` to keep it or `false` to discard it.
 -- @return (table): A new table containing only the items for which the predicate returned true.
 --
-util.filter_list = function(list, predicate)
+M.filter_list = function(list, predicate)
   local result = {}
   for _, item in ipairs(list) do
     if predicate(item) then
@@ -36,7 +37,7 @@ util.filter_list = function(list, predicate)
   return result
 end
 
-util.delete_target_buffer = function(abs_path)
+M.delete_target_buffer = function(abs_path)
   local old_bufnr = vim.fn.bufnr(abs_path)
   if old_bufnr ~= -1 then
     vim.cmd("bdelete! " .. old_bufnr)
@@ -62,7 +63,7 @@ end
 -- @param from_path (string) The absolute or relative path of the source. Can be a directory or a file.
 -- @param to_path (string) The absolute or relative path of the target file or directory.
 -- @return (string) The relative path from `from_path` to `to_path`.
-function util.get_relative_path(from_path, to_path)
+function M.get_relative_path(from_path, to_path)
   -- Step 1: Determine the correct base directory from `from_path`.
   local from_base_path
   -- Check if the provided 'from_path' is a directory.
@@ -140,7 +141,7 @@ end
 -- This ensures that more specific (deeper) paths are matched first.
 -- @param paths (table): The list of path objects to sort.
 --
-util.sort_wiki_paths = function(paths)
+M.sort_wiki_paths = function(paths)
   table.sort(paths, function(a, b)
     return #a.normalized > #b.normalized
   end)
@@ -151,17 +152,18 @@ end
 -- @param path_str (string): The path string from the configuration.
 -- @return (string|nil): The resolved absolute path, or nil if input is invalid.
 --
-util.resolve_path = function(path_str)
+M.resolve_path = function(path_str)
   if not path_str or path_str == "" then
     return nil
   end
 
   -- Resolve path relative to home directory if it's not absolute.
   local path_to_resolve
-  if vim.fn.isabsolutepath(path_str) == 0 then
-    path_to_resolve = vim.fs.joinpath(vim.loop.os_homedir(), path_str)
+  local expanded_path = vim.fn.expand(path_str)
+  if vim.fn.isabsolutepath(expanded_path) == 0 then
+    path_to_resolve = M.join_path(vim.loop.os_homedir(), expanded_path)
   else
-    path_to_resolve = path_str
+    path_to_resolve = expanded_path
   end
 
   return vim.fn.fnamemodify(path_to_resolve, ":p")
@@ -171,14 +173,23 @@ end
 -- Ensures a directory exists at the given path, creating it if necessary.
 -- @param path (string): The absolute path of the directory to check.
 --
-util.ensure_path_exists = function(path)
+M.ensure_path_exists = function(path)
   if not path or path == "" then
     return
   end
   -- Create the directory if it doesn't exist.
   if vim.fn.isdirectory(path) ~= 1 then
-    pcall(vim.fn.mkdir, path, "p")
-    vim.notify("  " .. path .. " created.", vim.log.levels.INFO, { title = "neowiki" })
+    local ok, err = pcall(vim.fn.mkdir, path, "p")
+    if ok then
+      vim.notify("  " .. path .. " created.", vim.log.levels.INFO, { title = "neowiki" })
+    else
+      -- Notify the user if the directory could not be created.
+      vim.notify(
+        "Failed to create directory: " .. path .. "\nError: " .. tostring(err),
+        vim.log.levels.ERROR,
+        { title = "neowiki" }
+      )
+    end
   end
 end
 
@@ -187,7 +198,7 @@ end
 -- @param path (string): The file path to normalize.
 -- @return (string): The normalized path.
 --
-util.normalize_path_for_comparison = function(path)
+M.normalize_path_for_comparison = function(path)
   if not path then
     return ""
   end
@@ -195,36 +206,11 @@ util.normalize_path_for_comparison = function(path)
 end
 
 ---
--- Wraps a function in a keymap that can be repeated with the `.` operator.
--- It leverages the `repeat.vim` plugin functionality.
--- @param mode (string|table): The keymap mode (e.g., "n", "v").
--- @param lhs (string): The left-hand side of the mapping (must start with `<Plug>`).
--- @param rhs (function): The function to execute.
--- @return (string): The `lhs` of the mapping.
---
-util.make_repeatable = function(mode, lhs, rhs)
-  vim.validate({
-    mode = { mode, { "string", "table" } },
-    rhs = { rhs, "function" },
-    lhs = { lhs, "string" },
-  })
-  if not vim.startswith(lhs, "<Plug>") then
-    error("`lhs` should start with `<Plug>`, given: " .. lhs)
-  end
-  vim.keymap.set(mode, lhs, function()
-    rhs()
-    -- Make the action repeatable with '.'
-    pcall(vim.fn["repeat#set"], vim.api.nvim_replace_termcodes(lhs, true, true, true))
-  end)
-  return lhs
-end
-
----
 -- Opens a given URL in the default external application (e.g., a web browser).
 -- This function is cross-platform and supports macOS, Linux, and Windows.
 -- @param url (string): The URL to open.
 --
-util.open_external = function(url)
+M.open_external = function(url)
   if not url or url == "" then
     return
   end
@@ -258,13 +244,13 @@ end
 -- Helper function to detect if the current window is a float.
 -- @return boolean True if the window is a float, false otherwise.
 --
-util.is_float = function()
+M.is_float = function()
   local win_id = vim.api.nvim_get_current_win()
   local conf = vim.api.nvim_win_get_config(win_id)
   return conf.relative and conf.relative ~= ""
 end
 
-util.is_web_link = function(target)
+M.is_web_link = function(target)
   if not target or target == "" then
     return false
   end
@@ -275,7 +261,7 @@ end
 -- Populates the quickfix list with the provided broken link information and opens it.
 -- @param broken_links_info (table) A list of objects, each with `filename`, `lnum` and `text`
 --
-util.populate_quickfix_list = function(quickfix_info, title)
+M.populate_quickfix_list = function(quickfix_info)
   if not quickfix_info or #quickfix_info == 0 then
     return
   end
@@ -296,10 +282,6 @@ util.populate_quickfix_list = function(quickfix_info, title)
     vim.schedule(function()
       vim.cmd("copen")
     end)
-
-    -- Use the provided title or a sensible default.
-    local notification_message = title or (#qf_list .. " item(s) added to quickfix list.")
-    vim.notify(notification_message, vim.log.levels.INFO, { title = "neowiki" })
   end
 end
 
@@ -309,13 +291,13 @@ end
 -- @param ext (string): The extension (e.g., ".md").
 -- @return (string|nil): The processed link target (e.g., "my_page.md"), or nil.
 --
-util.process_link_target = function(target, ext)
+M.process_link_target = function(target, ext)
   if not target or not target:match("%S") then
     return nil
   end
   local clean_target = target:match("^%s*(.-)%s*$")
 
-  if util.is_web_link(clean_target) then
+  if M.is_web_link(clean_target) then
     return clean_target
   end
 
@@ -333,7 +315,7 @@ end
 --   e.g., {{ search = "foo", replace = "bar" }, { search = "baz", replace = "qux" }}
 -- @return (boolean, string|nil): Returns true on success, or false and an error message.
 --
-util.replace_in_file = function(file_path, replacements)
+M.replace_in_file = function(file_path, replacements)
   -- Ensure the file is readable before proceeding.
   if vim.fn.filereadable(file_path) == 0 then
     return false, "File not readable: " .. file_path
@@ -380,8 +362,23 @@ end
 -- @param filename string The name of the file or sub-directory to append.
 -- @return string The absolute, canonical path to the resulting file or directory.
 --
-util.join_path = function(file_path, filename)
+M.join_path = function(file_path, filename)
   local joined_path = vim.fs.joinpath(file_path, filename)
   return vim.fn.resolve(joined_path)
 end
-return util
+
+---
+-- Sanitizes a string to make it suitable for use as a filename.
+-- @param name (string) The input string to be sanitized.
+-- @return (string) The sanitized string.
+--
+M.sanitize_filename = function(name)
+  if not name then
+    return ""
+  end
+  -- Replace spaces with underscores and remove characters invalid in filenames
+  local sanitized = name:gsub(" ", "_"):gsub("[\\?%%*:|'\"<>]", "")
+  return sanitized
+end
+
+return M

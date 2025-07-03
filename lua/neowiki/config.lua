@@ -1,3 +1,4 @@
+--- lua/neowiki/config.lua
 ---@class neowiki.Config
 ---@field public wiki_dirs table|nil Defines the wiki directories. Can be a single table or a list of tables.
 ---@field public index_file string The filename for the index file of a wiki.
