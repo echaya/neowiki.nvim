@@ -65,13 +65,15 @@ local config = {
     -- position, and border. These are the default values.
     open = {
       relative = "editor",
-      width = 0.85,
-      height = 0.85,
+      width = 0.9,
+      height = 0.9,
       border = "rounded",
     },
 
     -- Options for nvim_win_set_option(). Defines the behavior
-    -- within the window after it's created. Left empty by default.
+    -- within the window after it's created. e.g., winblend = 0 to
+    -- override the default winblend for floating window to 0 opacity
+    -- Left empty by default.
     style = {},
   },
 }

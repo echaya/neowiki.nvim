@@ -17,8 +17,8 @@ M.open_file_in_float = function(buffer_number)
   local internal_defaults = {
     open = {
       relative = "editor",
-      width = 0.85,
-      height = 0.85,
+      width = 0.9,
+      height = 0.9,
       border = "rounded",
     },
     style = {},
