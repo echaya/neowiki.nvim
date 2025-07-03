@@ -429,7 +429,7 @@ local function execute_file_action(path_to_action, fallback_targets, action_conf
   end
 
   -- 2. Action-specific setup (e.g., get new name via vim.ui.input)
-  action_config.setup(filename, path_to_action, function(context)
+  action_config.setup(filename, function(context)
     if not context then -- User cancelled the setup phase
       vim.notify(
         action_config.verb .. " operation canceled.",
@@ -513,7 +513,7 @@ end
 M.delete_wiki_page = function()
   local delete_config = {
     verb = "Delete",
-    setup = function(_, _, callback)
+    setup = function(_, callback)
       callback({})
     end, -- No setup needed for delete
     get_confirm_prompt = function(filename, _)
@@ -550,20 +550,7 @@ end
 M.rename_wiki_page = function()
   local rename_config = {
     verb = "Rename",
-    setup = function(default_name, _, callback)
-      vim.ui.input(
-        { prompt = "Enter new page name:", default = default_name, completion = "file" },
-        function(input)
-          if not input or input == "" or input == default_name then
-            return callback(nil) -- Abort
-          end
-          local new_filename = (vim.fn.fnamemodify(input, ":e") == "")
-              and (input .. state.markdown_extension)
-            or input
-          callback({ new_filename = new_filename })
-        end
-      )
-    end,
+    setup = ui.prompt_rename_input,
     get_confirm_prompt = function(old_filename, context)
       return string.format(
         "Rename '%s' to '%s' and update all backlinks?",

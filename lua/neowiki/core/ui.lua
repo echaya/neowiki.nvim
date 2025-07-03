@@ -61,6 +61,40 @@ M.open_file_in_float = function(buffer_number)
 end
 
 ---
+--- Safely prompts the user for input, handling cancellations gracefully.
+-- @param opts (table): The options table passed directly to vim.ui.input.
+-- @param on_confirm (function): The callback to execute. It receives the user's
+--   input as a string, or nil if the input was empty or cancelled.
+--
+local safe_ui_input = function(opts, on_confirm)
+  local success = pcall(vim.ui.input, opts, function(input)
+    on_confirm(input)
+  end)
+  -- on_confirm should handle nil as input
+  if not success then
+    on_confirm(nil)
+  end
+end
+
+---
+-- Safely prompts the user for selct, handling cancellations gracefully.
+-- errors when the user cancels with <Esc> or <C-c>.
+-- @param items (table): The items table passed directly to vim.ui.input.
+-- @param opts (table): The options table passed directly to vim.ui.input.
+-- @param on_confirm (function): The callback to execute. It receives the user's
+--   input as a string, or nil if the input was empty or cancelled.
+--
+local safe_ui_select = function(items, opts, on_choice)
+  local success = pcall(vim.ui.select, items, opts, function(input)
+    on_choice(input)
+  end)
+  -- on_confirm should handle nil as input
+  if not success then
+    on_choice(nil)
+  end
+end
+
+---
 -- Displays a `vim.ui.select` prompt for the user to choose a wiki.
 -- @param wiki_dirs (table): A list of configured wiki directory objects.
 -- @param on_complete (function): Callback to execute with the selected wiki path.
@@ -70,12 +104,13 @@ local function choose_wiki(wiki_dirs, on_complete)
   for _, wiki_dir in ipairs(wiki_dirs) do
     table.insert(items, wiki_dir.name)
   end
-  vim.ui.select(items, {
+  local options = {
     prompt = "Select wiki:",
     format_item = function(item)
       return "  " .. item
     end,
-  }, function(choice)
+  }
+  safe_ui_select(items, options, function(choice)
     if not choice then
       vim.notify("Wiki selection cancelled.", vim.log.levels.INFO, { title = "neowiki" })
       on_complete(nil)
@@ -186,12 +221,13 @@ M.prompt_wiki_page = function(search_root, current_buf_path, on_complete)
   end
 
   -- Display the UI selector and handle the user's choice.
-  vim.ui.select(items, {
+  local options = {
     prompt = "Select a page to link:",
     format_item = function(item)
       return " " .. item.display
     end,
-  }, function(choice)
+  }
+  safe_ui_select(items, options, function(choice)
     if not choice then
       vim.notify("Wiki link insertion cancelled.", vim.log.levels.INFO, { title = "neowiki" })
       on_complete(nil) -- User cancelled the prompt.
@@ -226,8 +262,7 @@ M.prompt_for_action_target = function(action_verb, callback)
       linked_filename,
       current_filename
     )
-    local choice = vim.fn.confirm(prompt, "&Linked File\n&Current File\n&Cancel")
-
+    local _, choice = pcall(vim.fn.confirm, prompt, "&Linked File\n&Current File\n&Cancel")
     if choice == 1 then -- User chose "Linked File"
       path_to_action = linked_file_path
       additional_fallback = current_buf_path -- The current buffer is the other option
@@ -255,6 +290,28 @@ M.prompt_for_action_target = function(action_verb, callback)
     end
     callback(path_to_action, fallback_targets)
   end
+end
+
+---
+-- Prompts the user to enter new file name
+-- @param default_name (string) The original_name of the file
+-- @param callback (function) The callback to process input new file
+--
+M.prompt_rename_input = function(default_name, callback)
+  local opts = {
+    prompt = "Enter new page name:",
+    default = default_name,
+    completion = "file",
+  }
+  safe_ui_input(opts, function(input)
+    if not input or input == "" or input == default_name then
+      return callback(nil) -- Abort cleanly
+    end
+    local new_filename = (vim.fn.fnamemodify(input, ":e") == "")
+        and (input .. state.markdown_extension)
+      or input
+    callback({ new_filename = new_filename })
+  end)
 end
 
 return M
