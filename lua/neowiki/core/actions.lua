@@ -421,7 +421,7 @@ local function execute_file_action(path_to_action, fallback_targets, action_conf
   local filename = vim.fn.fnamemodify(path_to_action, ":t")
   if filename == config.index_file then
     vim.notify(
-      action_config.verb .. "ing an index file is not allowed.",
+      string.sub(action_config.verb, 1, -2) .. "ing an index file is not allowed.",
       vim.log.levels.WARN,
       { title = "neowiki" }
     )

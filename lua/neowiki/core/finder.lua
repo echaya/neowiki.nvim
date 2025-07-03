@@ -249,7 +249,7 @@ end
 --   Each object contains: { file = absolute_path, lnum = line_number, text = text_of_line }
 M.find_backlink_fallback = function(search_targets, search_term)
   vim.notify(
-    "rg not found. Falling back to searching the immediate index file.",
+    "rg not found. Falling back to search the immediate index file.",
     vim.log.levels.INFO,
     { title = "neowiki" }
   )

@@ -407,6 +407,11 @@ end
 local function _process_lnum(lnum, is_batch)
   local node = toggle_op.cache.nodes[lnum]
   if not node then
+    vim.notify(
+      "Only list items can be turned into tasks. Aborting.",
+      vim.log.levels.WARN,
+      { title = "neowiki" }
+    )
     return
   end
 
@@ -438,15 +443,20 @@ local function _process_visual_selection(start_ln, end_ln)
     local node = toggle_op.cache.nodes[i]
     local current_state = get_node_state(node)
     if current_state == "INVALID" then
-      vim.notify("Neowiki: Selection contains non-list items. Aborting.", vim.log.levels.WARN)
+      vim.notify(
+        "Selection contains non-list items. Aborting.",
+        vim.log.levels.WARN,
+        { title = "neowiki" }
+      )
       return
     end
     if not first_node_state then
       first_node_state = current_state
     elseif first_node_state ~= current_state then
       vim.notify(
-        "Neowiki: Selection contains items with mixed states. Aborting.",
-        vim.log.levels.WARN
+        "Selection contains items with mixed states. Aborting.",
+        vim.log.levels.WARN,
+        { title = "neowiki" }
       )
       return
     end
