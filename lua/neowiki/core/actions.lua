@@ -360,9 +360,10 @@ local function process_backlinks(old_abs_path, backlink_candidates, line_transfo
   local changes_for_qf = {}
   local files_to_update = {}
 
+  local target_filename_no_ext = vim.fn.fnamemodify(old_abs_path, ":t:r")
   for _, match in ipairs(backlink_candidates) do
     local temp_cursor = { match.lnum, 0 }
-    local processed_target = link.process_link(temp_cursor, match.text)
+    local processed_target = link.process_link(temp_cursor, match.text, target_filename_no_ext)
 
     if processed_target and not util.is_web_link(processed_target) then
       local match_dir = vim.fn.fnamemodify(match.file, ":p:h")
@@ -479,6 +480,7 @@ local function execute_file_action(path_to_action, fallback_targets, action_conf
 
     -- 6. Find and process backlinks
     local target_filename_no_ext = vim.fn.fnamemodify(path_to_action, ":t:r")
+    context.target_filename_no_ext = target_filename_no_ext
     local backlink_candidates = finder.find_backlinks(ultimate_wiki_root, target_filename_no_ext)
     if not backlink_candidates then
       backlink_candidates = finder.find_backlink_fallback(fallback_targets, target_filename_no_ext)
@@ -531,11 +533,15 @@ M.delete_wiki_page = function()
         vim.cmd("edit " .. vim.fn.fnameescape(fallback_path))
       end
     end,
-    get_backlink_transformer = function(_)
+    get_backlink_transformer = function(context)
       return function(line_content, _, _)
-        return link.find_and_transform_link_markup(line_content, function()
-          return ""
-        end)
+        return link.find_and_transform_link_markup(
+          line_content,
+          context.target_filename_no_ext,
+          function()
+            return ""
+          end
+        )
       end
     end,
   }
@@ -572,14 +578,18 @@ M.rename_wiki_page = function()
     get_backlink_transformer = function(context)
       return function(line_content, file_dir, _)
         local new_relative_path = util.get_relative_path(file_dir, context.new_full_path)
-        return link.find_and_transform_link_markup(line_content, function(link_text, old_target)
-          if old_target then -- Markdown link
-            return link_text .. "(" .. new_relative_path .. ")"
-          else -- Wikilink
-            local new_link_text = vim.fn.fnamemodify(new_relative_path, ":r")
-            return "[[" .. new_link_text .. "]]"
+        return link.find_and_transform_link_markup(
+          line_content,
+          context.target_filename_no_ext,
+          function(link_text, old_target)
+            if old_target then -- Markdown link
+              return link_text .. "(" .. new_relative_path .. ")"
+            else -- Wikilink
+              local new_link_text = vim.fn.fnamemodify(new_relative_path, ":r")
+              return "[[" .. new_link_text .. "]]"
+            end
           end
-        end)
+        )
       end
     end,
   }

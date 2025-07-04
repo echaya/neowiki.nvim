@@ -151,38 +151,53 @@ M.process_link = function(cursor, line, pattern_to_match)
 end
 
 ---
--- Finds the first markdown or wikilink on a line and transforms it.
--- @param line (string) The line containing the link.
--- @param transform_fn (function) A function that receives the link components and returns the new link markup.
---   - For markdown links, receives (link_text, old_target). e.g., "My Page", "./my_page.md"
---   - For wikilinks, receives (link_text). e.g., "My Page"
--- @return (string, number) The modified line and the count of replacements.
+-- Finds and transforms all markdown or wikilinks on a line that match a specific pattern.
+-- @param line (string) The line containing links.
+-- @param pattern_to_match (string) The substring to find within a link's target to trigger the transformation.
+-- @param transform_fn (function) A function that receives link components and returns the new link markup.
+--   - For markdown links, it receives (link_text, old_target). e.g., "[My Page]", "./my_page.md"
+--   - For wikilinks, it receives (link_text). e.g., "My Page"
+-- @return (string, number) The modified line and the total count of replacements made.
 --
-M.find_and_transform_link_markup = function(line, transform_fn)
-  -- 1. Try to transform a standard markdown link: [text](target)
+M.find_and_transform_link_markup = function(line, pattern_to_match, transform_fn)
+  local total_replacements = 0
+
+  -- 1. Create a temporary line variable to modify during iteration.
+  local modified_line = line
+
+  -- 2. Transform all matching standard markdown links: [text](target)
   local md_pattern = "(%[.-%])(%(.-%))"
-  local md_link_text, md_target_part = line:match(md_pattern)
+  -- Use gmatch to create an iterator for all occurrences, not just the first one.
+  for link_text, target_part in modified_line:gmatch(md_pattern) do
+    local old_target = target_part:match("%((.*)%)")
 
-  if md_link_text and md_target_part then
-    local old_full_markup = md_link_text .. md_target_part
-    -- Extract the raw target from within the parentheses
-    local old_target = md_target_part:match("%((.*)%)")
-    -- The transform function returns the complete new markup, e.g., "[My Page](./new.md)" or ""
-    local new_full_markup = transform_fn(md_link_text, old_target)
-    return line:gsub(vim.pesc(old_full_markup), new_full_markup, 1)
+    -- Only proceed if the pattern is found in the link's target.
+    if old_target and old_target:find(pattern_to_match, 1, true) then
+      local old_full_markup = link_text .. target_part
+      local new_full_markup = transform_fn(link_text, old_target)
+      local replacements
+      -- Perform substitution on the most recent version of the line.
+      modified_line, replacements =
+        modified_line:gsub(vim.pesc(old_full_markup), new_full_markup, 1)
+      total_replacements = total_replacements + replacements
+    end
   end
 
-  -- 2. If no markdown link, try to transform a wikilink: [[target]]
+  -- 3. Transform all matching wikilinks: [[target]] on the potentially modified line.
   local wiki_pattern = "%[%[(.-)%]%]"
-  local old_link_text = line:match(wiki_pattern)
-
-  if old_link_text then
-    local old_full_markup = "[[" .. old_link_text .. "]]"
-    local new_full_markup = transform_fn(old_link_text)
-    return line:gsub(vim.pesc(old_full_markup), new_full_markup, 1)
+  for link_text in modified_line:gmatch(wiki_pattern) do
+    -- For wikilinks, the link_text is the target.
+    if link_text and link_text:find(pattern_to_match, 1, true) then
+      local old_full_markup = "[[" .. link_text .. "]]"
+      local new_full_markup = transform_fn(link_text)
+      local replacements
+      modified_line, replacements =
+        modified_line:gsub(vim.pesc(old_full_markup), new_full_markup, 1)
+      total_replacements = total_replacements + replacements
+    end
   end
 
-  return line, 0
+  return modified_line, total_replacements
 end
 
 return M
