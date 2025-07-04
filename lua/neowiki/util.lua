@@ -286,10 +286,10 @@ M.populate_quickfix_list = function(quickfix_info)
 end
 
 ---
--- Processes a raw link target, cleaning it and appending the configured extension if necessary.
+-- Processes a raw link target, cleaning it and ensuring it's a relative path.
 -- @param target (string): The raw link target string (e.g., "my page").
 -- @param ext (string): The extension (e.g., ".md").
--- @return (string|nil): The processed link target (e.g., "my_page.md"), or nil.
+-- @return (string|nil): The processed link target (e.g., "./my_page.md"), or nil.
 --
 M.process_link_target = function(target, ext)
   if not target or not target:match("%S") then
@@ -297,17 +297,24 @@ M.process_link_target = function(target, ext)
   end
   local clean_target = target:match("^%s*(.-)%s*$")
 
+  -- If it's a web link, return it as-is without modification.
   if M.is_web_link(clean_target) then
     return clean_target
   end
 
+  -- For local files, ensure an extension exists.
   local has_extension = clean_target:match("%.%w+$")
   if not has_extension then
     clean_target = clean_target .. ext
   end
+
+  -- NEW: Prepend "./" if it's not already a relative path.
+  if not clean_target:match("^%./") then
+    clean_target = "./" .. clean_target
+  end
+
   return clean_target
 end
-
 ---
 -- Reads a file, applies a list of replacements, and writes it back.
 -- @param file_path (string): The absolute path to the file to modify.
