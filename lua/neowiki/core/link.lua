@@ -77,15 +77,22 @@ M.find_broken_links_in_buffer = function()
 end
 
 ---
--- Processes the text on a line to find and return a markdown link target.
--- If a cursor position is provided, it finds the link at that position.
--- If the cursor is nil, it finds the first link on the line.
--- @param cursor (table|nil): The cursor position `{row, col}`. Can be nil.
--- @param line (string): The content of the current line.
--- @return (string|nil): The processed link target, otherwise nil.
---
-M.process_link = function(cursor, line)
-  local col = cursor[2] + 1
+-- Processes a line to find and extract a link based on cursor position or a search pattern.
+-- The function operates in two modes:
+-- 1. **Cursor Mode** (default): When `pattern_to_match` is nil, it finds the link
+--    (Markdown or Wikilink) that is currently under the editor's cursor.
+-- 2. **"Hungry" Mode**: When `pattern_to_match` is a string, it ignores the cursor
+--    and returns the *first* link found whose target contains `pattern_to_match`
+--    as a substring.
+-- @param cursor table A table representing the cursor's position, where `cursor[2]` is the 0-indexed column.
+-- @param line string The line of text to be analyzed.
+-- @param pattern_to_match string|nil The substring to search for in link targets ("hungry mode"), or nil to use cursor position.
+-- @return string|nil The processed link target if a match is found, otherwise nil.
+M.process_link = function(cursor, line, pattern_to_match)
+  -- Determine the mode. If pattern_to_match is nil, use cursor position.
+  local hungry_mode = pattern_to_match ~= nil
+  local col = not hungry_mode and (cursor[2] + 1) or 0
+
   -- 1. Search for standard markdown links: [text](target)
   do
     local md_pattern = "%[(.-)%]%(<?([^)>]+)>?%)"
@@ -96,7 +103,18 @@ M.process_link = function(cursor, line)
         break
       end
       search_pos = e + 1
-      if col >= s and col <= e then
+
+      if hungry_mode then
+        if target and target:find(pattern_to_match, 1, true) then
+          vim.notify(
+            "hungry_mode taget found for []() pattern: "
+              .. target
+              .. " pattern: "
+              .. pattern_to_match
+          )
+          return util.process_link_target(target, state.markdown_extension)
+        end
+      elseif col >= s and col <= e then
         return util.process_link_target(target, state.markdown_extension)
       end
     end
@@ -112,9 +130,19 @@ M.process_link = function(cursor, line)
         break
       end
       search_pos = e + 1
-      if col >= s and col <= e then
-        local processed = util.process_link_target(target, state.markdown_extension)
-        return processed and ("./" .. processed) or nil
+
+      if hungry_mode then
+        if target and target:find(pattern_to_match, 1, true) then
+          vim.notify(
+            "hungry_mode taget found for [[]] pattern: "
+              .. target
+              .. " pattern: "
+              .. pattern_to_match
+          )
+          return util.process_link_target(target, state.markdown_extension)
+        end
+      elseif col >= s and col <= e then
+        return util.process_link_target(target, state.markdown_extension)
       end
     end
   end

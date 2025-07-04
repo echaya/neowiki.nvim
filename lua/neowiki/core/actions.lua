@@ -107,7 +107,7 @@ M.follow_link = function(open_cmd)
 
   local cursor = vim.api.nvim_win_get_cursor(0)
   local line = vim.fn.getline(cursor[1])
-  local filename = link.process_link(cursor, line)
+  local filename = link.process_link(cursor, line, nil)
 
   if filename and filename:len() > 0 then
     -- try open_external if the filename is a url

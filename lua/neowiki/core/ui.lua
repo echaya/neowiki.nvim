@@ -245,7 +245,7 @@ end
 M.prompt_for_action_target = function(action_verb, callback)
   local cursor = vim.api.nvim_win_get_cursor(0)
   local line = vim.api.nvim_get_current_line()
-  local link_target = link.process_link(cursor, line) -- updated call
+  local link_target = link.process_link(cursor, line, nil)
   local current_buf_path = vim.api.nvim_buf_get_name(0)
   local path_to_action = nil
   local additional_fallback = nil
