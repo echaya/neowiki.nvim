@@ -548,8 +548,14 @@ M.delete_wiki_page = function()
         return link.find_and_transform_link_markup(
           line_content,
           context.target_filename_no_ext,
-          function()
-            return ""
+          function(link_text, old_target)
+            if old_target then -- This is a markdown link: [text](target)
+              -- Extract the text from between the brackets.
+              return link_text:match("^%[(.*)%]$") or ""
+            else -- This is a wikilink: [[text]]
+              -- The link_text is already the display text.
+              return link_text
+            end
           end
         )
       end
