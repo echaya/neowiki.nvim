@@ -379,7 +379,7 @@ local function _create_task_from_list_item(node, is_batch_operation)
     if #non_task_ancestors > 0 then
       local prompt =
         string.format("Convert %d parent item(s) to tasks as well?", #non_task_ancestors)
-      local choice = vim.fn.confirm(prompt, "&Yes\n&No", 2, "Question")
+      local _, choice = pcall(vim.fn.confirm, prompt, "&Yes\n&No", 2, "Question")
       if choice == 1 then
         for _, ancestor in ipairs(non_task_ancestors) do
           table.insert(nodes_to_create, ancestor)

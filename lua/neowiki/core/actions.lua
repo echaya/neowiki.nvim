@@ -335,7 +335,7 @@ M.cleanup_broken_links = function()
   table.insert(prompt_lines, "\nWhat would you like to do?")
   local prompt_message = table.concat(prompt_lines, "\n")
 
-  local choice = vim.fn.confirm(prompt_message, "&Quickfix\n&Remove Lines\n&Cancel")
+  local _, choice = pcall(vim.fn.confirm, prompt_message, "&Quickfix\n&Remove Lines\n&Cancel")
 
   if choice == 1 then
     util.populate_quickfix_list(broken_links_info)
@@ -442,7 +442,8 @@ local function execute_file_action(path_to_action, fallback_targets, action_conf
 
     -- 3. Final confirmation
     local confirm_prompt = action_config.get_confirm_prompt(filename, context)
-    if vim.fn.confirm(confirm_prompt, "&Yes\n&No") ~= 1 then
+    local _, choice = pcall(vim.fn.confirm, confirm_prompt, "&Yes\n&No")
+    if choice ~= 1 then
       vim.notify(
         action_config.verb .. " operation canceled.",
         vim.log.levels.INFO,
