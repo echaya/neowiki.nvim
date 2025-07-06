@@ -262,55 +262,64 @@ M.open_wiki_index = function(name, open_cmd)
 end
 
 ---
--- Removes lines from the current buffer based on the provided broken links info
--- and notifies the user about the changes.
--- @param broken_links_info (table) A list of objects, each with an `lnum` and `text`.
+-- Removes markup from broken links within the current buffer, preserving the text.
+-- @param broken_links_info (table) A list of objects, each with an `lnum`.
 --
-local remove_lines_with_broken_links = function(broken_links_info)
+local remove_broken_links_markup = function(broken_links_info)
   if not broken_links_info or #broken_links_info == 0 then
     return
   end
 
-  local lines_to_keep = {}
-  local deleted_lines_details = {}
-  local delete_map = {}
+  local buf_nr = vim.api.nvim_get_current_buf()
+  local all_lines = vim.api.nvim_buf_get_lines(buf_nr, 0, -1, false)
+  local modified_lines_details = {}
+  local current_dir = vim.fn.fnamemodify(vim.api.nvim_buf_get_name(buf_nr), ":p:h")
 
+  local line_num_set = {}
   for _, info in ipairs(broken_links_info) do
-    delete_map[info.lnum] = true
-    table.insert(deleted_lines_details, "Line " .. info.lnum .. ": " .. info.text)
+    line_num_set[info.lnum] = true
   end
 
-  -- Build a new list of lines to keep, which is safer than deleting
-  -- lines one by one and dealing with shifting line numbers.
-  local all_lines = vim.api.nvim_buf_get_lines(0, 0, -1, false)
+  local any_line_modified = false
   for i, line in ipairs(all_lines) do
-    if not delete_map[i] then
-      table.insert(lines_to_keep, line)
+    if line_num_set[i] then
+      local new_line, was_modified = link.remove_broken_markup(line, current_dir)
+      if was_modified then
+        all_lines[i] = new_line
+        table.insert(modified_lines_details, "Line " .. i .. ": " .. line:match("^%s*(.-)%s*$"))
+        any_line_modified = true
+      end
     end
   end
 
-  vim.api.nvim_buf_set_lines(0, 0, -1, false, lines_to_keep)
+  if any_line_modified then
+    vim.api.nvim_buf_set_lines(buf_nr, 0, -1, false, all_lines)
 
-  -- Notify user of the changes.
-  local message = "Link cleanup complete.\nRemoved "
-    .. #deleted_lines_details
-    .. " line(s) with broken links:\n"
-    .. table.concat(deleted_lines_details, "\n")
+    local message = "Link cleanup complete.\nRemoved broken links from "
+      .. #modified_lines_details
+      .. " line(s):\n"
+      .. table.concat(modified_lines_details, "\n")
 
-  vim.notify(message, vim.log.levels.INFO, {
-    title = "neowiki",
-    on_open = function(win)
-      local width = vim.api.nvim_win_get_width(win)
-      -- Calculate height based on number of deleted lines plus header lines.
-      local height = #deleted_lines_details + 3
-      vim.api.nvim_win_set_config(win, { height = height, width = math.min(width, 100) })
-    end,
-  })
+    vim.notify(message, vim.log.levels.INFO, {
+      title = "neowiki",
+      on_open = function(win)
+        local width = vim.api.nvim_win_get_width(win)
+        local height = #modified_lines_details + 3
+        vim.api.nvim_win_set_config(win, { height = height, width = math.min(width, 100) })
+      end,
+    })
+  else
+    vim.notify(
+      "Could not remove links. They might be web links or the syntax is unusual.",
+      vim.log.levels.INFO,
+      { title = "neowiki" }
+    )
+  end
 end
 
 ---
 -- Finds broken links, displays them, and prompts the user for action:
--- populate quickfix, remove lines, or cancel.
+-- populate quickfix, remove links, or cancel.
 --
 M.cleanup_broken_links = function()
   local broken_links_info = link.find_broken_links_in_buffer()
@@ -335,12 +344,12 @@ M.cleanup_broken_links = function()
   table.insert(prompt_lines, "\nWhat would you like to do?")
   local prompt_message = table.concat(prompt_lines, "\n")
 
-  local _, choice = pcall(vim.fn.confirm, prompt_message, "&Quickfix\n&Remove Lines\n&Cancel")
+  local _, choice = pcall(vim.fn.confirm, prompt_message, "&Quickfix\n&Remove Links\n&Cancel")
 
   if choice == 1 then
     util.populate_quickfix_list(broken_links_info)
   elseif choice == 2 then
-    remove_lines_with_broken_links(broken_links_info)
+    remove_broken_links_markup(broken_links_info)
   else -- choice is 3 (Cancel) or 0 (dialog closed).
     vim.notify("Link cleanup canceled.", vim.log.levels.INFO, { title = "neowiki" })
   end

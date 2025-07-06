@@ -5,32 +5,73 @@ local state = require("neowiki.state")
 local M = {}
 
 ---
+-- A generic function that iterates through all links on a line and applies
+-- a transformation based on the provided logic.
+-- @param line (string) The line of text to process.
+-- @param transform_logic (function) A function that receives a context table for
+--   each link found and returns a replacement string, or nil to make no change.
+-- @return (string, number) The modified line and the count of replacements.
+--
+local function generic_link_transformer(line, transform_logic)
+  local total_replacements = 0
+
+  local function replacer(context)
+    local replacement = transform_logic(context)
+    if replacement ~= nil then
+      total_replacements = total_replacements + 1
+      return replacement
+    else
+      return context.full_markup
+    end
+  end
+
+  -- 1. Handle standard markdown links: [text](target)
+  line = line:gsub("(%[[^%]]*%])%(<(.-)>%)", function(link_text_part, raw_target)
+    return replacer({
+      type = "markdown",
+      display_text = link_text_part:match("^%[(.*)%]$"),
+      raw_target = raw_target,
+      full_markup = link_text_part .. "(<" .. raw_target .. ">)",
+    })
+  end)
+  line = line:gsub("(%[[^%]]*%])%(([^)]*)%)", function(link_text_part, raw_target)
+    return replacer({
+      type = "markdown",
+      display_text = link_text_part:match("^%[(.*)%]$"),
+      raw_target = raw_target,
+      full_markup = link_text_part .. "(" .. raw_target .. ")",
+    })
+  end)
+
+  -- 2. Handle wikilinks: [[target]]
+  line = line:gsub("%[%[([^%]]+)%]%]", function(raw_target)
+    return replacer({
+      type = "wikilink",
+      display_text = raw_target,
+      raw_target = raw_target,
+      full_markup = "[[" .. raw_target .. "]]",
+    })
+  end)
+
+  return line, total_replacements
+end
+
+---
 -- Finds all valid markdown link targets on a single line of text.
 -- @param line (string): The line to search.
 -- @return (table): A list of processed link targets found on the line.
 --
 local function find_all_link_targets(line)
   local targets = {}
-
-  -- Find standard markdown links: [text](target)
-  for file in line:gmatch("%]%(<?([^)>]+)>?%)") do
-    local processed = util.process_link_target(file, state.markdown_extension)
+  generic_link_transformer(line, function(ctx)
+    local processed = util.process_link_target(ctx.raw_target, state.markdown_extension)
     if processed then
       table.insert(targets, processed)
     end
-  end
-
-  -- Find wikilinks: [[target]]
-  for file in line:gmatch("%[%[([^]]+)%]%]") do
-    local processed = util.process_link_target(file, state.markdown_extension)
-    if processed then
-      table.insert(targets, processed)
-    end
-  end
-
+    return nil -- No replacement, just discovery
+  end)
   return targets
 end
-
 ---
 -- Scans the current buffer for markdown links that point to non-existent files.
 -- @return (table) A list of objects, where each object represents a line
@@ -106,12 +147,6 @@ M.process_link = function(cursor, line, pattern_to_match)
 
       if hungry_mode then
         if target and target:find(pattern_to_match, 1, true) then
-          vim.notify(
-            "hungry_mode taget found for []() pattern: "
-              .. target
-              .. " pattern: "
-              .. pattern_to_match
-          )
           return util.process_link_target(target, state.markdown_extension)
         end
       elseif col >= s and col <= e then
@@ -151,53 +186,50 @@ M.process_link = function(cursor, line, pattern_to_match)
 end
 
 ---
--- Finds and transforms all markdown or wikilinks on a line that match a specific pattern.
+-- Finds and transforms all links on a line that match a specific filename pattern.
 -- @param line (string) The line containing links.
--- @param pattern_to_match (string) The substring to find within a link's target to trigger the transformation.
--- @param transform_fn (function) A function that receives link components and returns the new link markup.
---   - For markdown links, it receives (link_text, old_target). e.g., "[My Page]", "./my_page.md"
---   - For wikilinks, it receives (link_text). e.g., "My Page"
+-- @param pattern_to_match (string) The substring to find within a link's target.
+-- @param transform_fn (function) A function that returns the new link markup.
 -- @return (string, number) The modified line and the total count of replacements made.
 --
 M.find_and_transform_link_markup = function(line, pattern_to_match, transform_fn)
-  local total_replacements = 0
-
-  -- 1. Create a temporary line variable to modify during iteration.
-  local modified_line = line
-
-  -- 2. Transform all matching standard markdown links: [text](target)
-  local md_pattern = "(%[.-%])(%(.-%))"
-  -- Use gmatch to create an iterator for all occurrences, not just the first one.
-  for link_text, target_part in modified_line:gmatch(md_pattern) do
-    local old_target = target_part:match("%((.*)%)")
-
-    -- Only proceed if the pattern is found in the link's target.
-    if old_target and old_target:find(pattern_to_match, 1, true) then
-      local old_full_markup = link_text .. target_part
-      local new_full_markup = transform_fn(link_text, old_target)
-      local replacements
-      -- Perform substitution on the most recent version of the line.
-      modified_line, replacements =
-        modified_line:gsub(vim.pesc(old_full_markup), new_full_markup, 1)
-      total_replacements = total_replacements + replacements
+  return generic_link_transformer(line, function(contex)
+    if contex.raw_target and contex.raw_target:find(pattern_to_match, 1, true) then
+      -- Call the original transform_fn, maintaining its signature for compatibility.
+      if contex.type == "markdown" then
+        return transform_fn("[" .. contex.display_text .. "]", contex.raw_target)
+      else -- wikilink
+        return transform_fn(contex.display_text)
+      end
     end
-  end
+    return nil -- No match, so no change.
+  end)
+end
 
-  -- 3. Transform all matching wikilinks: [[target]] on the potentially modified line.
-  local wiki_pattern = "%[%[(.-)%]%]"
-  for link_text in modified_line:gmatch(wiki_pattern) do
-    -- For wikilinks, the link_text is the target.
-    if link_text and link_text:find(pattern_to_match, 1, true) then
-      local old_full_markup = "[[" .. link_text .. "]]"
-      local new_full_markup = transform_fn(link_text)
-      local replacements
-      modified_line, replacements =
-        modified_line:gsub(vim.pesc(old_full_markup), new_full_markup, 1)
-      total_replacements = total_replacements + replacements
+---
+-- Finds and removes the markup for broken local links on a single line, preserving text.
+-- This function is used by the cleanup_broken_links action.
+-- @param line (string) The line to process.
+-- @param current_dir (string) The absolute path of the file's directory.
+-- @return (string, boolean) The modified line and a boolean indicating if changes were made.
+--
+M.remove_broken_markup = function(line, current_dir)
+  local modified_line, count = generic_link_transformer(line, function(context)
+    if not util.is_web_link(context.raw_target) then
+      -- To check the file path, we need the fully processed target name.
+      local processed_target =
+        util.process_link_target(context.raw_target, state.markdown_extension)
+      local full_target_path = util.join_path(current_dir, processed_target)
+
+      -- If the file is not readable, it's a broken link.
+      if vim.fn.filereadable(full_target_path) == 0 then
+        -- Return just the display text to remove the link markup.
+        return context.display_text
+      end
     end
-  end
-
-  return modified_line, total_replacements
+    return nil -- Link is valid or is a web link, so no change.
+  end)
+  return modified_line, count > 0
 end
 
 return M

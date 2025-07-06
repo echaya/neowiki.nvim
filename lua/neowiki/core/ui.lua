@@ -67,6 +67,8 @@ end
 --   input as a string, or nil if the input was empty or cancelled.
 --
 local safe_ui_input = function(opts, on_confirm)
+  -- -- for debuggging
+  -- vim.ui.input(opts, on_confirm)
   local success = pcall(vim.ui.input, opts, function(input)
     on_confirm(input)
   end)
@@ -85,6 +87,8 @@ end
 --   input as a string, or nil if the input was empty or cancelled.
 --
 local safe_ui_select = function(items, opts, on_choice)
+  -- -- for debuggging
+  -- vim.ui.select(items,items,opts)
   local success = pcall(vim.ui.select, items, opts, function(input)
     on_choice(input)
   end)
