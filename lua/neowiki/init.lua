@@ -60,11 +60,12 @@ local function process_wiki_paths(local_config)
   local all_roots_set = {}
   for _, path in ipairs(manual_wiki_dirs) do
     all_roots_set[path] = true
-
-    -- Find nested roots using the full index_file name from config.
-    local nested_roots = finder.find_nested_roots(path, local_config.index_file)
-    for _, nested_root in ipairs(nested_roots) do
-      all_roots_set[nested_root] = true
+    if local_config.discover_nested_roots then
+      -- Find nested roots using the full index_file name from config.
+      local nested_roots = finder.find_nested_roots(path, local_config.index_file)
+      for _, nested_root in ipairs(nested_roots) do
+        all_roots_set[nested_root] = true
+      end
     end
   end
 
