@@ -47,6 +47,10 @@ local config = {
     -- Keymap to rename the current wiki page.
     rename_page = "<leader>wr",
 
+    -- Navigate back and forward in Browse history
+    navigate_back = "[[",
+    navigate_forward = "]]",
+
     -- Keymap to close the floating wiki.
     close_float = "q",
   },

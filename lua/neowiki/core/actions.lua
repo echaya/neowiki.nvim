@@ -9,6 +9,41 @@ local state = require("neowiki.state")
 local M = {}
 
 ---
+-- Adds a new path to the navigation history.
+-- This function handles truncation of "forward" history if a new path is
+-- visited after navigating back.
+-- @param path (string): The absolute path of the page to add to the history.
+local function add_to_history(path)
+  if not path or path == "" then
+    return
+  end
+
+  -- If the cursor is pointing to the same path, do nothing.
+  if state.history_cursor > 0 and state.navigation_history[state.history_cursor] == path then
+    return
+  end
+
+  -- If we've navigated back and are now opening a new link,
+  -- truncate the "forward" part of the history.
+  if state.history_cursor > 0 and state.history_cursor < #state.navigation_history then
+    state.navigation_history = vim.list_slice(state.navigation_history, 1, state.history_cursor)
+  end
+
+  table.insert(state.navigation_history, path)
+  state.history_cursor = #state.navigation_history
+end
+
+---
+-- Initializes the navigation history with the given path if the history is empty.
+-- @param path (string): The path of the first wiki page visited.
+--
+M.initialize_history_if_needed = function(path)
+  if #state.navigation_history == 0 then
+    add_to_history(path)
+  end
+end
+
+---
 -- Checks if the current buffer is recognized as being inside a Neowiki directory.
 -- @return (boolean) Returns `true` if the buffer is part of a Neowiki, otherwise `false`.
 --
@@ -117,6 +152,7 @@ M.follow_link = function(open_cmd)
     end
 
     local full_path = util.join_path(active_path, filename)
+    add_to_history(full_path)
 
     -- reuse the current floating window to open the new link.
     if util.is_float() and not open_cmd then
@@ -136,6 +172,7 @@ end
 M.jump_to_index = function()
   local root = vim.b[0].wiki_root
   local index_path = util.join_path(root, config.index_file)
+  add_to_history(index_path)
   open_file(index_path)
 end
 
@@ -215,6 +252,7 @@ M.create_page_from_filename = function(filename, open_cmd)
     end
   end
 
+  add_to_history(full_path)
   -- Use the existing open_file action to handle opening in different ways.
   open_file(full_path, open_cmd)
 end
@@ -225,6 +263,10 @@ end
 -- @param open_cmd (string|nil): Optional command for opening the file.
 --
 M.open_wiki_index = function(name, open_cmd)
+  -- Reset history when opening a wiki index directly
+  state.navigation_history = {}
+  state.history_cursor = 0
+
   local function open_index_from_path(wiki_path)
     if not wiki_path then
       return
@@ -236,6 +278,8 @@ M.open_wiki_index = function(name, open_cmd)
     end
     util.ensure_path_exists(resolved_path)
     local wiki_index_path = vim.fs.joinpath(resolved_path, config.index_file)
+
+    add_to_history(wiki_index_path)
     open_file(wiki_index_path, open_cmd)
   end
 
@@ -613,6 +657,65 @@ M.rename_wiki_page = function()
   ui.prompt_for_action_target(rename_config.verb, function(path, fallbacks)
     execute_file_action(path, fallbacks, rename_config)
   end)
+end
+
+---
+-- Navigates to the previous page in the history.
+M.navigate_back = function()
+  if not M.check_in_neowiki() then
+    return
+  end
+
+  if state.history_cursor > 1 then
+    local target_cursor = state.history_cursor - 1
+    local path_to_open = state.navigation_history[target_cursor]
+
+    if vim.fn.filereadable(path_to_open) == 1 then
+      state.history_cursor = target_cursor
+      open_file(path_to_open)
+    else
+      vim.notify(
+        "History entry not found, removing: " .. vim.fn.fnamemodify(path_to_open, ":~"),
+        vim.log.levels.WARN,
+        { title = "neowiki" }
+      )
+      table.remove(state.navigation_history, target_cursor)
+      -- After removing the item before the current cursor, we must decrement the cursor
+      -- to maintain its position relative to the rest of the list.
+      state.history_cursor = state.history_cursor - 1
+    end
+  else
+    vim.notify("No more history to go back to.", vim.log.levels.INFO, { title = "neowiki" })
+  end
+end
+
+---
+-- Navigates to the next page in the history.
+M.navigate_forward = function()
+  if not M.check_in_neowiki() then
+    return
+  end
+
+  if state.history_cursor < #state.navigation_history then
+    local target_cursor = state.history_cursor + 1
+    local path_to_open = state.navigation_history[target_cursor]
+
+    if vim.fn.filereadable(path_to_open) == 1 then
+      state.history_cursor = target_cursor
+      open_file(path_to_open)
+    else
+      vim.notify(
+        "History entry not found, removing: " .. vim.fn.fnamemodify(path_to_open, ":~"),
+        vim.log.levels.WARN,
+        { title = "neowiki" }
+      )
+      table.remove(state.navigation_history, target_cursor)
+      -- No cursor change is needed here, as we removed an item *after* the current one.
+      -- The next press of 'forward' will try the next item in the shrunk list.
+    end
+  else
+    vim.notify("No more history to go forward to.", vim.log.levels.INFO, { title = "neowiki" })
+  end
 end
 
 return M

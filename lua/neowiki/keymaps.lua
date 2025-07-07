@@ -46,6 +46,7 @@ local function jump_to_link(direction)
     vim.cmd("noh")
   end
 end
+
 ---
 -- Creates buffer-local keymaps for the current wiki file.
 -- These keymaps are defined in the user's configuration.
@@ -127,6 +128,12 @@ M.create_buffer_keymaps = function(buffer_number)
     },
     rename_page = {
       n = { rhs = require("neowiki.api").rename_wiki_page, desc = "Rename current page" },
+    },
+    navigate_back = {
+      n = { rhs = require("neowiki.api").navigate_back, desc = "Navigate Back" },
+    },
+    navigate_forward = {
+      n = { rhs = require("neowiki.api").navigate_forward, desc = "Navigate Forward" },
     },
   }
 

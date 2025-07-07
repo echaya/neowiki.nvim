@@ -28,6 +28,9 @@ M.setup_buffer = function()
     vim.b[0].active_wiki_path = active_wiki_path
     vim.b[0].ultimate_wiki_root = ultimate_wiki_root
     keymaps.create_buffer_keymaps(0)
+
+    -- Initialize navigation history if this is the first wiki page entered.
+    actions.initialize_history_if_needed(buf_path)
   end
 end
 
@@ -152,6 +155,20 @@ M.delete_wiki_page = function()
   end
   -- Delegate the complex logic to the actions module.
   actions.delete_wiki_page()
+end
+
+M.navigate_back = function()
+  if not actions.check_in_neowiki() then
+    return
+  end
+  actions.navigate_back()
+end
+
+M.navigate_forward = function()
+  if not actions.check_in_neowiki() then
+    return
+  end
+  actions.navigate_forward()
 end
 
 return M

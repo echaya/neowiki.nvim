@@ -12,6 +12,10 @@ local State = {
   -- These values are derived from config.index_file during setup.
   index_name = nil,
   markdown_extension = nil,
+
+  -- History for page navigation
+  navigation_history = {},
+  history_cursor = 0,
 }
 
 return State
