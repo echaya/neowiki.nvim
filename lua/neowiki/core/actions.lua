@@ -222,16 +222,6 @@ M.create_page_from_filename = function(filename, open_cmd)
   -- Get the context from the current buffer's variables.
   local current_buf_nr = vim.api.nvim_get_current_buf()
   local active_wiki_path = vim.b[current_buf_nr].active_wiki_path
-
-  if not active_wiki_path then
-    vim.notify(
-      "Could not determine active wiki path. Action aborted.",
-      vim.log.levels.ERROR,
-      { title = "neowiki" }
-    )
-    return
-  end
-
   local full_path = util.join_path(active_wiki_path, filename)
   local dir_path = vim.fn.fnamemodify(full_path, ":h")
 

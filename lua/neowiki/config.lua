@@ -21,8 +21,7 @@ local config = {
 
   -- Automatically discover and register nested wiki roots.
   -- A nested root is a sub-directory within your wiki that contains its own index file.
-  -- Enabling this is useful for large projects, but may add a minor delay on startup
-  -- as it searches the file system.
+  -- Enabling this is useful navigating large wiki with nested structures, but may add a minor delay on startup
   -- Note: The search is faster if `rg`, `fd`, or `git` are installed.
   discover_nested_roots = false,
 
