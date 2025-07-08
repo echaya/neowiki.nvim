@@ -231,6 +231,7 @@ M.find_backlinks = function(search_path, target_filename)
     if file_path and lnum_str and line_content then
       -- for debug
       -- vim.notify(file_path .. " " .. lnum_str .. " " .. line_content)
+      line_content = line_content:gsub("\r$", "")
       table.insert(matches, {
         file = file_path,
         lnum = tonumber(lnum_str),
@@ -259,6 +260,7 @@ M.find_backlink_fallback = function(search_targets, search_term)
       local all_lines = vim.fn.readfile(file_path)
       for i, line in ipairs(all_lines) do
         if line:find(search_term, 1, true) then
+          line = line:gsub("\r$", "")
           table.insert(matches, {
             file = file_path,
             lnum = i,

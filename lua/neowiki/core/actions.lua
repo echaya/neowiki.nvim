@@ -433,6 +433,10 @@ local function process_backlinks(old_abs_path, backlink_candidates, line_transfo
   for file_path, changes in pairs(files_to_update) do
     local read_ok, lines = pcall(vim.fn.readfile, file_path)
     if read_ok then
+      for i = 1, #lines do
+        lines[i] = lines[i]:gsub("\r$", "")
+      end
+
       for lnum, new_line in pairs(changes) do
         lines[lnum] = new_line
         table.insert(
