@@ -226,10 +226,8 @@ M.create_page_from_filename = function(filename, open_cmd)
   local dir_path = vim.fn.fnamemodify(full_path, ":h")
 
   -- If the new file is an index file, register its directory as a new nested wiki root.
-  if vim.fn.fnamemodify(filename, ":t") == config.index_file then
-    if config.discover_nested_roots then
-      M.add_wiki_root(dir_path)
-    end
+  if vim.fn.fnamemodify(filename, ":t") == config.index_file and config.discover_nested_roots then
+    M.add_wiki_root(dir_path)
   end
 
   util.ensure_path_exists(dir_path)
