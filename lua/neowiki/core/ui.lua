@@ -311,7 +311,8 @@ M.prompt_rename_input = function(default_name, callback)
     if not input or input == "" or input == default_name then
       return callback(nil) -- Abort cleanly
     end
-    local new_filename = (vim.fn.fnamemodify(input, ":e") == "")
+    local sanitized_input = util.sanitize_filename(input)
+    local new_filename = (vim.fn.fnamemodify(sanitized_input, ":e") == "")
         and (input .. state.markdown_extension)
       or input
     callback({ new_filename = new_filename })
