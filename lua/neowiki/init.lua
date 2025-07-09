@@ -15,7 +15,7 @@ local markdown_patterns = {
 
 --- Public API ---
 
-M.VERSION = "0.2.0"
+M.VERSION = "0.3.0"
 M.open_wiki = api.open_wiki
 M.open_wiki_new_tab = api.open_wiki_new_tab
 M.open_wiki_floating = api.open_wiki_floating
