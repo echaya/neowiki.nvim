@@ -28,18 +28,30 @@ Getting Things Done (GTD).
 - _Flexible Wiki Opening_
   Open wikis your way — in the current buffer, a new tab, or a sleek floating
   window for distraction-free note-taking.
-- *Seamless Linking & Navigation*
-  Create and track markdown links with <CR>, split with <S-CR> or <C-CR>.
-  Navigate smoothly with <Tab>/<S-Tab> and <BS>.
-- *Smart GTD*
-  Toggle tasks with <leader>wt ([ ] to [x]), see nested progress updated in
-  real-time.
-- *Multi-Wiki & Nested Support*
-  Manage multiple wikis (e.g., work, personal) and nested index.md with ease.
+
+- _Seamless Linking & Page Navigation_
+  Create and follow markdown links with <CR>, split with <S-CR> or <C-CR>.
+  Jump between links with <Tab>/<S-Tab> and jump to the wiki index with
+  <Backspace>.
+
+- _Browse History_
+  Navigate back and forth through your visited pages like a web browser using
+  [[ and ]].
+
+- _Smart GTD_
+  Toggle tasks with <leader>wt ([ ] to [x]), and see nested progress percentages
+  updated in real-time.
+
+- _Multi-Wiki & Nested Root Support_
+  Manage multiple wikis (e.g., work, personal) and automatically discover
+  nested `index.md` files with ease by enabling `discover_nested_roots`.
+
 - _Advanced Wiki Management_
-  Rename or delete pages with <leader>wr and <leader>wd (updating all
-  backlinks), insert links with <leader>wi, and clean broken links with
+  Rename or delete the current page—or the page under the cursor's link—with
+  <leader>wr and <leader>wd, which automatically updates all backlinks.
+  Find and insert links with <leader>wi and clean up broken links with
   <leader>wc.
+
 - _Neovim Native_
   Harness Neovim 0.10+ with Lua speed, integrating seamlessly with
   Treesitter, markdown rendering, completion, pickers, and your setup out of
@@ -49,6 +61,7 @@ Getting Things Done (GTD).
 3. Installation                               *neowiki-installation*
 
 This plugin requires Neovim >= 0.10.
+
 Using lazy.nvim:
 >lua
 {
@@ -143,19 +156,28 @@ require("neowiki").setup({
   -- The filename for a wiki's index page.
   index_file = "index.md",
 
+  -- Automatically discover and register nested wiki roots.
+  discover_nested_roots = false,
+
   -- Defines the keymaps used by neowiki.
   keymaps = {
     action_link = "<CR>",
     action_link_vsplit = "<S-CR>",
     action_link_split = "<C-CR>",
-    toggle_task = "<leader>wt",
+
     next_link = "<Tab>",
     prev_link = "<S-Tab>",
-    jump_to_index = "<BS>",
+    navigate_back = "[[",
+    navigate_forward = "]]",
+    jump_to_index = "<Backspace>",
+
     delete_page = "<leader>wd",
     cleanup_links = "<leader>wc",
     insert_link = "<leader>wi",
     rename_page = "<leader>wr",
+
+    toggle_task = "<leader>wt",
+
     close_float = "q",
   },
 
@@ -191,6 +213,9 @@ Default Key Mappings
 --------------------
 The following logical actions are mapped by default. You can change the key
 for any action in the `keymaps` table of your setup configuration.
+It is important to note that these keymaps are buffer-local; they will only be
+active in markdown files that are located within a configured wiki
+directory.
 
 | Mode     | Key binding       | Action Description                  |
 | -------- | ----------------- | ----------------------------------- |
@@ -202,7 +227,9 @@ for any action in the `keymaps` table of your setup configuration.
 | Visual   | `<C-CR>`          | Create link, open in split          |
 | Normal   | `<Tab>`           | Jump to the next link in buffer     |
 | Normal   | `<S-Tab>`         | Jump to the previous link           |
-| Normal   | `<BS>`            | Jump to the current wiki's index    |
+| Normal   | `[[`              | Navigate back in history            |
+| Normal   | `]]`              | Navigate forward in history         |
+| Normal   | `<Backspace>`     | Jump to the current wiki's index    |
 | Normal   | `<leader>wt`      | Toggle task status on current line  |
 | Visual   | `<leader>wt`      | Toggle task status for selection    |
 | Normal   | `<leader>wd`      | Delete current or linked page       |
