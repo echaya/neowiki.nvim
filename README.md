@@ -14,26 +14,20 @@
 
 ## 🔥 Key Features
 
--   **Flexible Wiki Opening** 🪟  
-    Open wikis your way — in the current buffer, a new tab, or a sleek floating window for distraction-free note-taking.
+- **Flexible Wiki Access** 🪟  
+  Open wikis your way—in the current buffer, a new tab, or a distraction-free floating window for focused note-taking.
 
--   **Seamless Linking & Page Navigation** 🔗  
-    Create and follow markdown links with `<CR>`, split with `<S-CR>` or `<C-CR>`. Jump between links with `<Tab>`/`<S-Tab>` and return to the index with `<Backspace>`.
+- **Effortless Linking & Navigation** 🔗  
+  Create and follow markdown links with `<CR>`, split with `<S-CR>` or `<C-CR>`, and jump between links using `<Tab>`/`<S-Tab>`. Navigate page history like a browser with `[[` and `]]`, or return to `index.md` with `<BS>`.
 
--   **Browse History** 📜  
-    Navigate back and forth through your visited pages like a web browser using `[[` and `]]`.
+- **Smart Task Management** ✅  
+  Toggle tasks with `<leader>wt` (`[ ]` ↔ `[x]`) and track nested task progress in real-time with dynamic updates.
 
--   **Smart GTD** ✅  
-    Create and toggle tasks with `<leader>wt` (`[ ]` <-> `[x]`), and see nested progress updated in real-time.
+- **Robust Wiki Organization** 📂  
+  Manage multiple wikis (e.g., work, personal) with automatic discovery of nested `index.md` files. Easily insert, rename, or delete wiki pages with automatic backlink updates.
 
--   **Multi-Wiki & Nested Root Support** 📂  
-    Manage multiple wikis (e.g., work, personal) and automatically discover nested `index.md` files with ease by enabling `discover_nested_roots`.
-
--   **Advanced Wiki Management** 🛠️  
-    Rename or delete the current page—or the page under the cursor's link—with `<leader>wr` and `<leader>wd`, which automatically updates all backlinks. Find and insert links with `<leader>wi` and clean up broken links with `<leader>wc`.
-
--   **Neovim Native** ⚙️  
-    Harness Neovim 0.10+ with Lua speed, integrating seamlessly with Treesitter, markdown rendering, completion, pickers, and your existing setup right out of the box.
+- **Neovim-Powered Efficiency** ⚙️  
+  Built for Neovim 0.10+, leveraging Lua for speed and seamless integration with Treesitter, markdown rendering, completion, pickers, and your existing setup.
 
 ## 📷 Quick Peek
 ![Demo GIF](https://github.com/echaya/neowiki.nvim/blob/main/assets/demo.gif)
