@@ -21,7 +21,7 @@ local config = {
 
   -- Automatically discover and register nested wiki roots.
   -- A nested root is a sub-directory within your wiki that contains its own index file.
-  -- Enabling this is useful navigating large wiki with nested structures, but may add a minor delay on startup
+  -- Enabling this is useful for navigating large wiki with nested structures, but may add a minor delay on startup
   -- Note: The search is faster if `rg`, `fd`, or `git` are installed.
   discover_nested_roots = false,
 
@@ -34,16 +34,16 @@ local config = {
     action_link_vsplit = "<S-CR>",
     action_link_split = "<C-CR>",
 
-    -- Toggles the status of a gtd item.
-    -- Works on the current line in Normal mode and on the selection in Visual mode.
-    toggle_task = "<leader>wt",
-
     -- Jumps to the next link in the buffer.
     next_link = "<Tab>",
     -- Jumps to the previous link in the buffer.
     prev_link = "<S-Tab>",
+    -- Navigate back and forward in Browse history
+    navigate_back = "[[",
+    navigate_forward = "]]",
     -- Jumps to the index page of the current wiki.
     jump_to_index = "<Backspace>",
+
     -- Deletes the current wiki page.
     delete_page = "<leader>wd",
     -- Removes all links in the current file that point to non-existent pages.
@@ -53,9 +53,9 @@ local config = {
     -- Keymap to rename the current wiki page.
     rename_page = "<leader>wr",
 
-    -- Navigate back and forward in Browse history
-    navigate_back = "[[",
-    navigate_forward = "]]",
+    -- Toggles the status of a gtd item.
+    -- Works on the current line in Normal mode and on the selection in Visual mode.
+    toggle_task = "<leader>wt",
 
     -- Keymap to close the floating wiki.
     close_float = "q",
@@ -89,3 +89,4 @@ local config = {
 }
 
 return config
+
