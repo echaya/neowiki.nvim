@@ -17,17 +17,20 @@
 -   **Flexible Wiki Opening** 🪟  
     Open wikis your way — in the current buffer, a new tab, or a sleek floating window for distraction-free note-taking.
 
--   **Seamless Linking & Navigation** 🔗  
-    Create and track markdown links with `<CR>`, split with `<S-CR>` or `<C-CR>`. Navigate smoothly with `<Tab>`/`<S-Tab>` and return to the index with `<BS>`.
+-   **Seamless Linking & Page Navigation** 🔗  
+    Create and follow markdown links with `<CR>`, split with `<S-CR>` or `<C-CR>`. Jump between links with `<Tab>`/`<S-Tab>` and return to the index with `<Backspace>`.
+
+-   **Browse History** 📜  
+    Navigate back and forth through your visited pages like a web browser using `[[` and `]]`.
 
 -   **Smart GTD** ✅  
     Create and toggle tasks with `<leader>wt` (`[ ]` <-> `[x]`), and see nested progress updated in real-time.
 
--   **Multi-Wiki & Nested Support** 📂  
-    Manage multiple wikis (e.g., work, personal) and nested `index.md` files with ease.
+-   **Multi-Wiki & Nested Root Support** 📂  
+    Manage multiple wikis (e.g., work, personal) and automatically discover nested `index.md` files with ease by enabling `discover_nested_roots`.
 
 -   **Advanced Wiki Management** 🛠️  
-    Rename or delete pages with `<leader>wr` and `<leader>wd`, automatically updating all backlinks. Insert links with `<leader>wi` and clean up broken links with `<leader>wc`.
+    Rename or delete the current page—or the page under the cursor's link—with `<leader>wr` and `<leader>wd`, which automatically updates all backlinks. Find and insert links with `<leader>wi` and clean up broken links with `<leader>wc`.
 
 -   **Neovim Native** ⚙️  
     Harness Neovim 0.10+ with Lua speed, integrating seamlessly with Treesitter, markdown rendering, completion, pickers, and your existing setup right out of the box.
@@ -118,27 +121,28 @@ lua vim.keymap.set("n", "<leader>wT", require("neowiki").open_wiki_new_tab, { de
 
 
 ## ⌨️ Default Keybindings
+The following keymaps are buffer-local and only active in markdown files within a configured wiki directory.
 
-| Mode   | Key          | Action               | Description                               |
-|--------|--------------|----------------------|-------------------------------------------|
-| Normal | `<CR>`       | Follow link          | Open link under cursor                    |
-| Visual | `<CR>`       | Create link          | Create link from selection                |
-| Normal | `<S-CR>`     | Follow link (vsplit) | Open link in vertical split               |
-| Visual | `<S-CR>`     | Create link (vsplit) | Create link, open in vertical split       |
-| Normal | `<C-CR>`     | Follow link (split)  | Open link in horizontal split             |
-| Visual | `<C-CR>`     | Create link (split)  | Create link, open in horizontal split     |
-| Normal | `<Tab>`      | Next link            | Navigate to next link                     |
-| Normal | `<S-Tab>`    | Previous link        | Navigate to previous link                 |
-| Normal | `<BS>`       | Jump to index        | Open the current wiki’s `index.md`        |
-| Normal | `<leader>wt` | Toggle task          | Create or toggle task status on the line  |
-| Visual | `<leader>wt` | Toggle tasks         | Bulk create or toggle tasks in selection  |
-| Normal | `<leader>wd` | Delete page          | Delete current or linked page             |
-| Normal | `<leader>wr` | Rename page          | Rename current or linked page             |
-| Normal | `<leader>wi` | Insert link          | Find and insert a link to a wiki page     |
-| Normal | `<leader>wc` | Clean broken links   | Remove broken links from the current page |
-| Normal | `q`          | Close float          | Close the floating wiki window            |
-
-
+| Mode   | Key           | Action               | Description                               |
+| ---    | ---           | ---                  | ---                                       |
+| Normal | `<CR>`        | Follow link          | Open link under cursor                    |
+| Visual | `<CR>`        | Create link          | Create link from selection                |
+| Normal | `<S-CR>`      | Follow link (vsplit) | Open link in vertical split               |
+| Visual | `<S-CR>`      | Create link (vsplit) | Create link, open in vertical split       |
+| Normal | `<C-CR>`      | Follow link (split)  | Open link in horizontal split             |
+| Visual | `<C-CR>`      | Create link (split)  | Create link, open in horizontal split     |
+| Normal | `<Tab>`       | Next link            | Navigate to next link                     |
+| Normal | `<S-Tab>`     | Previous link        | Navigate to previous link                 |
+| Normal | `[[`          | Navigate back        | Go back in browsing history               |
+| Normal | `]]`          | Navigate forward     | Go forward in browsing history            |
+| Normal | `<Backspace>` | Jump to index        | Open the current wiki’s `index.md`        |
+| Normal | `<leader>wt`  | Toggle task          | Create or toggle task status on the line  |
+| Visual | `<leader>wt`  | Toggle tasks         | Bulk create or toggle tasks in selection  |
+| Normal | `<leader>wd`  | Delete page          | Delete current or linked page             |
+| Normal | `<leader>wr`  | Rename page          | Rename current or linked page             |
+| Normal | `<leader>wi`  | Insert link          | Find and insert a link to a wiki page     |
+| Normal | `<leader>wc`  | Clean broken links   | Remove broken links from the current page |
+| Normal | `q`           | Close float          | Close the floating wiki window            |
 ## ⚙️ Default Configuration
 
 Below is the default configuration for **neowiki.nvim**. You don’t need to copy all settings; just override the options you want to change in your `setup()` call.
@@ -158,6 +162,9 @@ require("neowiki").setup({
   -- The filename for a wiki's index page (e.g., "index.md").
   index_file = "index.md",
 
+  -- Automatically discover and register nested wiki roots.
+  discover_nested_roots = false,
+
   -- Defines the keymaps used by neowiki.
   -- Setting a keymap to `false` or an empty string will disable it.
   keymaps = {
@@ -166,15 +173,17 @@ require("neowiki").setup({
     action_link = "<CR>",
     action_link_vsplit = "<S-CR>",
     action_link_split = "<C-CR>",
-    -- Toggles the status of a gtd item.
-    -- Works on the current line in Normal mode and on the selection in Visual mode.
-    toggle_task = "<leader>wt",
+
     -- Jumps to the next link in the buffer.
     next_link = "<Tab>",
     -- Jumps to the previous link in the buffer.
     prev_link = "<S-Tab>",
+    -- Navigate back and forth in history.
+    navigate_back = "[[",
+    navigate_forward = "]]",
     -- Jumps to the index page of the current wiki.
-    jump_to_index = "<BS>",
+    jump_to_index = "<Backspace>",
+
     -- Renames the current wiki page and updates backlinks.
     rename_page = "<leader>wr",
     -- Deletes the current wiki page and updates backlinks.
@@ -183,6 +192,11 @@ require("neowiki").setup({
     insert_link = "<leader>wi",
     -- Removes all links in the current file that point to non-existent pages.
     cleanup_links = "<leader>wc",
+
+    -- Toggles the status of a gtd item.
+    -- Works on the current line in Normal mode and on the selection in Visual mode.
+    toggle_task = "<leader>wt",
+
     -- Closes the floating window.
     close_float = "q",
   },
