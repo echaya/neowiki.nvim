@@ -11,6 +11,7 @@ local markdown_patterns = {
   "*.markdown",
   "*.mdown",
   "*.mkd",
+  "*.qmd",
 }
 
 --- Public API ---
