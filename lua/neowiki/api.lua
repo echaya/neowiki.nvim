@@ -8,12 +8,12 @@ local keymaps = require("neowiki.keymaps")
 local M = {}
 
 ---
--- Sets up buffer-local variables and keymaps if the current buffer is a markdown file
+-- Sets up buffer-local variables and keymaps if the current buffer is a markdown or quarto file
 -- located within a configured wiki directory.
 -- This function is triggered by the BufEnter autocommand.
 --
 M.setup_buffer = function()
-  if vim.bo.filetype ~= "markdown" then
+  if vim.bo.filetype ~= "markdown" and vim.bo.filetype ~= "quarto" then
     return
   end
 
