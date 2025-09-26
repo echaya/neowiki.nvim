@@ -78,11 +78,19 @@ lua vim.keymap.set("n", "<leader>wT", require("neowiki").open_wiki_new_tab, { de
 
 ## 🚀 Optional Dependencies
 
-`neowiki.nvim` is designed to be fast by leveraging modern command-line tools. While optional, installing them is **highly recommended** for the best performance. If none are found, the plugin gracefully falls back to a native Lua search.
+### File Search
 
--   **ripgrep (`rg`)**: The primary search tool. It is **required** for the global backlink search used when renaming or deleting pages. Without `rg`, backlink updates will search a limited scope.
--   **fd**: A fast file finder, used as the second choice if `rg` is not available for listing pages.
--   **git**: If `rg` and `fd` are unavailable, `git ls-files` is used as a fallback for finding files within a git repository.
+`neowiki.nvim` enhances file searching with modern command-line tools for optimal performance. While optional, installing them is highly recommended for efficient page listing and backlink updates. If none are found, the plugin falls back to a native Lua search.
+
+- *ripgrep* (`rg`): The primary search tool. It is required for global backlink search when renaming or deleting pages. Without `rg`, backlink updates will search a limited scope.
+- *fd*: A fast file finder, used as the second choice if `rg` is not available for listing pages.
+- *git*: If `rg` and `fd` are unavailable, `git ls-files` is used as a fallback for finding files within a git repository.
+
+### GTD Enhancements
+
+`neowiki.nvim` supports enhanced GTD functionality with optional plugin.
+
+- [*vim-repeat*](https://github.com/tpope/vim-repeat): Enables repeating GTD actions (e.g., task creation and completion with `<leader>wt`) using the dot (`.`) command.
 
 ## 📝 Usage
 
