@@ -32,30 +32,20 @@ M.check = function()
 
   start("neowiki: Dependencies")
 
-  local has_ts, _ = pcall(require, "nvim-treesitter")
-  if not has_ts then
-    warn("nvim-treesitter: Not installed")
-    info("Link detection will use Regex fallback (less robust).")
-  else
-    ok("nvim-treesitter: Installed")
-    local parsers = require("nvim-treesitter.parsers")
-    local required_parsers = { "markdown", "markdown_inline" }
-    for _, parser in ipairs(required_parsers) do
-      -- The nvim-treesitter parser module completely changed in the last major release. Therefore
-      -- we first check for the old `has_parser` function and then check on the module table
-      -- directly as the new release returns a table with the parser.
-      local has_parser
-      if _G["nvim-treesitter.parsers.has_parser"] then
-        has_parser = parsers.has_parser(parser)
-      else
-        has_parser = parsers[parser]
-      end
-      if has_parser then
-        ok(string.format(" - Parser '%s': Installed", parser))
-      else
-        warn(string.format(" - Parser '%s': Missing", parser))
-        info(string.format("   Run :TSInstall %s", parser))
-      end
+  local required_parsers = { "markdown", "markdown_inline" }
+  for _, parser in ipairs(required_parsers) do
+    -- Check if the queries are in the runtime paths and the parser are installed.
+    -- Query the path to make it independent of the treesitter support inside neovim.
+    -- Treesitter support in neovim is changing quickly therefore internal function can't be relied on beyond
+    -- a major version. This approach is tested beginning with neovim 0.7
+    local has_parser = vim.api.nvim_exec([[echo nvim_get_runtime_file("parser/]] .. parser .. [[.*", v:true)]], true)
+    local has_queries = vim.api.nvim_exec([[echo nvim_get_runtime_file("queries/]] .. parser .. [[", v:true)]], true)
+    if string.find(has_parser, parser) ~= nil and string.find(has_queries, parser) ~= nil then
+      ok(string.format(" - Parser '%s': Installed", parser))
+    else
+      warn(string.format(" - Parser '%s': Missing", parser))
+      info("   Install parser using a treesitter manager plugin like `neovim-treesitter/nvim-treesitter`.")
+      info("   Or manual install the parser and queries.")
     end
   end
 

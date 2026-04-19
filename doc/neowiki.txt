@@ -114,7 +114,7 @@ native Lua-based search method.
 
 OTHER DEPENDENCIES
 ------------------
-- ***nvim-treesitter***
+- ***Treesitter***
   Strongly recommended. neowiki.nvim uses Treesitter parsers (`markdown` and
   `markdown_inline`) to robustly detect and parse links, ensuring that links
   inside code blocks or other ignored regions are handled correctly.

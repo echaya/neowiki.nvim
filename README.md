@@ -85,7 +85,7 @@ lua vim.keymap.set("n", "<leader>wT", require("neowiki").open_wiki_new_tab, { de
 `neowiki.nvim` enhances file searching with modern command-line tools for optimal performance. While optional, installing `ripgrep` (`rg`) is highly recommended for efficient page listing and backlink updates. If not found, the plugin falls back to a native Lua search.
 
 ### Functional Enhancements
-* `nvim-treesitter`: Strongly recommended. `neowiki.nvim` uses the `markdown` and `markdown_inline` parsers to robustly detect and parse links, ensuring that links inside code blocks or other ignored regions are handled correctly.
+* `Treesitter`: Strongly recommended. `neowiki.nvim` uses the `markdown` and `markdown_inline` parsers to robustly detect and parse links, ensuring that links inside code blocks or other ignored regions are handled correctly.
 - [*vim-repeat*](https://github.com/tpope/vim-repeat): Enables repeating GTD actions (e.g., task creation and completion with `<leader>wt`) using the dot (`.`) command.
 
 ## 📝 Usage

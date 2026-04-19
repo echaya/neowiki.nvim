@@ -23,6 +23,57 @@ local function is_link_node(node_type)
     or node_type == "image"
 end
 
+-- Partially re-implement (copy) legacy `nvim-treesitter.ts_utils.get_node_at_cursor`
+-- `https://github.com/nvim-treesitter/nvim-treesitter/blob/cf12346a3414fa1b06af75c79faebe7f76df080a/lua/nvim-treesitter/ts_utils.lua#L163`
+local function get_root_for_position(line, col, root_lang_tree)
+  local lang_tree = root_lang_tree:language_for_range({ line, col, line, col })
+
+  while true do
+    for _, tree in pairs(lang_tree:trees()) do
+      local root = tree:root()
+
+      if root and vim.treesitter.is_in_node_range(root, line, col) then
+        return root, tree, lang_tree
+      end
+    end
+
+    if lang_tree == root_lang_tree then
+      break
+    end
+
+    -- This case can happen when the cursor is at the start of a line that ends a injected region,
+    -- e.g., the first `]` in the following lua code:
+    -- ```
+    -- vim.cmd[[
+    -- ]]
+    -- ```
+    lang_tree = lang_tree:parent() -- NOTE: parent() method is private
+  end
+
+  -- This isn't a likely scenario, since the position must belong to a tree somewhere.
+  return nil, nil, lang_tree
+end
+
+local function get_node_at_cursor()
+  local cursor = vim.api.nvim_win_get_cursor(0)
+  local cursor_range = { cursor[1] - 1, cursor[2] }
+
+  local buf = vim.api.nvim_win_get_buf(0)
+  local root_lang_tree = vim.treesitter.get_parser(buf)
+  if not root_lang_tree then
+    return
+  end
+
+  local root ---@type TSNode|nil
+  root = get_root_for_position(cursor_range[1], cursor_range[2], root_lang_tree)
+
+  if not root then
+    return
+  end
+
+  return root:named_descendant_for_range(cursor_range[1], cursor_range[2], cursor_range[1], cursor_range[2])
+end
+
 --- Uses Treesitter to extract the link target under the cursor.
 --- Returns nil if Treesitter is unavailable, disabled, or no link is found.
 ---@return string|nil The raw link target text, or nil.
@@ -31,12 +82,7 @@ local function get_ts_link_target()
     return nil
   end
 
-  local ok, ts_utils = pcall(require, "nvim-treesitter.ts_utils")
-  if not ok then
-    return nil
-  end
-
-  local node = ts_utils.get_node_at_cursor()
+  local node = get_node_at_cursor()
   if not node then
     return nil
   end
