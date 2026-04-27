@@ -37,7 +37,7 @@
 
 ## 🛠️ Getting Started
 
-Requires **Neovim >= 0.10**. For the best experience, install Treesitter’s `markdown` and `markdown_inline` parsers.
+Requires **Neovim >= 0.11**. For the best experience, install Treesitter’s `markdown` and `markdown_inline` parsers.
 
 *Tip*: After installation, run `:checkhealth neowiki` to verify your environment, dependencies, and configuration paths.
 
