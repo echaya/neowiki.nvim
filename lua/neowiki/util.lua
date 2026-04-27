@@ -237,6 +237,10 @@ M.open_external = function(url)
     return
   end
 
+  if M.is_web_link(url) then
+    url = url:gsub(" ", "%%20")
+  end
+
   local os_name = vim.loop.os_uname().sysname
   local command
 
@@ -246,12 +250,13 @@ M.open_external = function(url)
   elseif os_name == "Linux" then
     command = "xdg-open " .. vim.fn.shellescape(url)
   elseif os_name:find("Windows") then
-    -- Use `shellescape` with `true` for Windows' cmd.exe.
-    command = "start " .. vim.fn.shellescape(url, true)
+    command = 'cmd.exe /c start "" "' .. url .. '"'
   end
 
   if command then
-    vim.cmd("!" .. command)
+    local escaped_command = vim.fn.escape(command, "%#")
+
+    vim.cmd("!" .. escaped_command)
     vim.notify("Opening in external app: " .. url, vim.log.levels.INFO, { title = "neowiki" })
   else
     vim.notify(
