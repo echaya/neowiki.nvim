@@ -60,7 +60,7 @@ Getting Things Done (GTD).
 
 3. Installation                                           *neowiki-installation*
 
-This plugin requires Neovim >= 0.10.
+This plugin requires Neovim >= 0.11.
 
 *Tip:* After installation, run `:checkhealth neowiki` to verify your environment,
 dependencies, and configuration paths.

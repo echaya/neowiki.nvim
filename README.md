@@ -27,7 +27,7 @@
   Manage multiple wikis (e.g., work, personal) with automatic discovery of nested `index.md` files. Easily insert, rename, or delete wiki pages with automatic backlink updates.
 
 - **Neovim-Powered Efficiency** ⚙️  
-  Built for Neovim 0.10+, leveraging Lua for speed and seamless integration with *other plugins*: Treesitter, markdown rendering, completion, pickers, and your existing config.
+  Built for Neovim 0.11+, leveraging Lua for speed and seamless integration with *other plugins*: Treesitter, markdown rendering, completion, pickers, and your existing config.
 
 ## 📷 Quick Peek
 ![Demo GIF](https://github.com/echaya/neowiki.nvim/blob/main/assets/demo.gif)
