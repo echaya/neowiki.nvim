@@ -229,7 +229,6 @@ end
 
 ---
 -- Opens a given URL in the default external application (e.g., a web browser).
--- This function is cross-platform and supports macOS, Linux, and Windows.
 -- @param url (string): The URL to open.
 --
 M.open_external = function(url)
@@ -241,30 +240,18 @@ M.open_external = function(url)
     url = url:gsub(" ", "%%20")
   end
 
-  local os_name = vim.loop.os_uname().sysname
-  local command
-
-  if os_name == "Darwin" then
-    -- Use `shellescape` without the second argument for POSIX shells.
-    command = "open " .. vim.fn.shellescape(url)
-  elseif os_name == "Linux" then
-    command = "xdg-open " .. vim.fn.shellescape(url)
-  elseif os_name:find("Windows") then
-    command = 'cmd.exe /c start "" "' .. url .. '"'
-  end
-
-  if command then
-    local escaped_command = vim.fn.escape(command, "%#")
-
-    vim.cmd("!" .. escaped_command)
-    vim.notify("Opening in external app: " .. url, vim.log.levels.INFO, { title = "neowiki" })
-  else
+  -- A handler can exist but fail to spawn, which raises instead of returning an error.
+  local ok, process, err = pcall(vim.ui.open, url)
+  if not ok or not process then
     vim.notify(
-      "Unsupported OS for opening external links: " .. os_name,
-      vim.log.levels.WARN,
+      "Failed to open external link: " .. tostring(ok and err or process),
+      vim.log.levels.ERROR,
       { title = "neowiki" }
     )
+    return
   end
+
+  vim.notify("Opening in external app: " .. url, vim.log.levels.INFO, { title = "neowiki" })
 end
 
 ---
