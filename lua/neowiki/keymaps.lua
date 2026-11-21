@@ -1,4 +1,4 @@
--- lua/neowiki/keymap.lua
+-- lua/neowiki/keymaps.lua
 local util = require("neowiki.util")
 local config = require("neowiki.config")
 
@@ -39,6 +39,69 @@ local function jump_to_link(direction)
   else
     -- Clear search highlighting after a successful jump.
     vim.cmd("noh")
+  end
+end
+
+---
+-- Overrides keymap actions not supported in a floating window
+-- (split navigation and quickfix-dependent actions) and binds `close_float`.
+-- @param logical_actions (table): The map of logical action definitions.
+-- @param buffer_number (number): The buffer number to attach keymaps to.
+--
+local function apply_floating_overrides(logical_actions, buffer_number)
+  local close_lhs = config.keymaps.close_float
+
+  if not util.is_float() then
+    if close_lhs and close_lhs ~= "" then
+      pcall(vim.keymap.del, "n", close_lhs, { buffer = buffer_number })
+    end
+    return
+  end
+
+  local function notify_split_disabled()
+    vim.notify(
+      "(V)Split actions are disabled in a floating window.",
+      vim.log.levels.INFO,
+      { title = "neowiki" }
+    )
+  end
+
+  local disabled_split_action = {
+    n = { rhs = notify_split_disabled, desc = "Action disabled in float" },
+    v = { rhs = notify_split_disabled, desc = "Action disabled in float" },
+  }
+  logical_actions.action_link_vsplit = disabled_split_action
+  logical_actions.action_link_split = disabled_split_action
+
+  -- Quickfix-dependent actions are restricted to non-floating windows to avoid
+  -- window layout conflicts and hidden quickfix splits behind the float.
+  local quickfix_actions = {
+    delete_page = "Delete page",
+    rename_page = "Rename page",
+    cleanup_links = "Clean broken links",
+  }
+
+  for action_key, label in pairs(quickfix_actions) do
+    logical_actions[action_key] = {
+      n = {
+        rhs = function()
+          vim.notify(
+            string.format("%s is disabled in floating mode.", label),
+            vim.log.levels.WARN,
+            { title = "neowiki" }
+          )
+        end,
+        desc = string.format("%s (disabled in float)", label),
+      },
+    }
+  end
+
+  if close_lhs and close_lhs ~= "" then
+    vim.keymap.set("n", close_lhs, "<cmd>close<CR>", {
+      buffer = buffer_number,
+      desc = "neowiki: Close floating window",
+      silent = true,
+    })
   end
 end
 
@@ -132,36 +195,7 @@ M.create_buffer_keymaps = function(buffer_number)
     },
   }
 
-  -- If we are in a floating window, override split actions to show a notification.
-  local close_lhs = config.keymaps.close_float
-  if util.is_float() then
-    local function notify_disabled()
-      vim.notify(
-        "(V)Split actions are disabled in a floating window.",
-        vim.log.levels.INFO,
-        { title = "neowiki" }
-      )
-    end
-
-    local disabled_action = {
-      n = { rhs = notify_disabled, desc = "Action disabled in float" },
-      v = { rhs = notify_disabled, desc = "Action disabled in float" },
-    }
-    logical_actions.action_link_vsplit = disabled_action
-    logical_actions.action_link_split = disabled_action
-
-    if close_lhs and close_lhs ~= "" then
-      vim.keymap.set("n", close_lhs, "<cmd>close<CR>", {
-        buffer = buffer_number,
-        desc = "neowiki: Close floating window",
-        silent = true,
-      })
-    end
-  else
-    if close_lhs and close_lhs ~= "" then
-      pcall(vim.keymap.del, "n", close_lhs, { buffer = buffer_number })
-    end
-  end
+  apply_floating_overrides(logical_actions, buffer_number)
 
   -- Iterate through the user's flattened keymap config and apply the mappings.
   for action_name, lhs in pairs(config.keymaps) do
