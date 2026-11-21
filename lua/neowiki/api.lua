@@ -8,6 +8,24 @@ local keymaps = require("neowiki.keymaps")
 local M = {}
 
 ---
+-- Checks whether the current window is a floating window and emits a warning if so.
+-- Used to block quickfix-dependent heavy actions from running inside floating windows.
+-- @param action_label (string): Human-readable name of the action for the warning message.
+-- @return (boolean): `true` if the window is non-floating (allowed), `false` otherwise.
+--
+local function check_not_floating(action_label)
+  if util.is_float() then
+    vim.notify(
+      string.format("%s is disabled in floating mode.", action_label),
+      vim.log.levels.WARN,
+      { title = "neowiki" }
+    )
+    return false
+  end
+  return true
+end
+
+---
 -- Sets up buffer-local variables and keymaps if the current buffer is a markdown or quarto file
 -- located within a configured wiki directory.
 -- This function is triggered by the BufEnter autocommand.
@@ -99,9 +117,10 @@ end
 ---
 -- Finds broken links, displays them, and prompts the user for action:
 -- populate quickfix, remove lines, or cancel.
+-- Restricted to non-floating windows.
 --
 M.cleanup_broken_links = function()
-  if not actions.check_in_neowiki() then
+  if not actions.check_in_neowiki() or not check_not_floating("Clean broken links") then
     return
   end
   actions.cleanup_broken_links()
@@ -138,8 +157,12 @@ M.insert_wiki_link = function()
   ui.prompt_wiki_page(search_root, current_buf_path, on_page_select)
 end
 
+---
+-- Renames the current or linked wiki page and updates all backlinks.
+-- Restricted to non-floating windows.
+--
 M.rename_wiki_page = function()
-  if not actions.check_in_neowiki() then
+  if not actions.check_in_neowiki() or not check_not_floating("Rename page") then
     return
   end
   actions.rename_wiki_page()
@@ -148,9 +171,10 @@ end
 ---
 -- Deletes the current wiki page after confirmation. Prevents deletion of the
 -- root config.index_file and then triggers a cleanup of broken links.
+-- Restricted to non-floating windows.
 --
 M.delete_wiki_page = function()
-  if not actions.check_in_neowiki() then
+  if not actions.check_in_neowiki() or not check_not_floating("Delete page") then
     return
   end
   -- Delegate the complex logic to the actions module.
